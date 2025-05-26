@@ -24,14 +24,14 @@ def token(token_data: TokenData):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# Controlador para registrar un nuevo usuario
+
 def register(user: UserRegister):
     response = create_user(user)
     if "error" in response:
         raise HTTPException(status_code=500, detail=response["error"])
     return {"message": "User registered successfully"}
 
-# Controlador para recuperación de contraseña
+
 def handle_forgot_password(user: UserForgotPassword):
     db_user = get_user_by_email(user.email)
     if db_user:

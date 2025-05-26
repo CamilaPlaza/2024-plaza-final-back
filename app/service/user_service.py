@@ -13,7 +13,7 @@ def create_user(user_data):
             "monthlyPoints": "0"
         })
         return {"message": "User data saved successfully"}
-    except Exception as e:
+    except Exception as e:  
         return {"error": str(e)}
 
 # Obtener un usuario por su email

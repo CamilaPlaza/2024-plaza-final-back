@@ -7,11 +7,11 @@ from firebase_admin import credentials, firestore, initialize_app
 load_dotenv()
 
 def init_firebase():
-    cred_path = os.getenv("FIREBASE_CRED_PATH")
-    firebase_creds_dict = json.loads(cred_path)
+    cred_file_path = os.getenv("FIREBASE_CRED_PATH")
+    with open(cred_file_path) as f:
+        firebase_creds_dict = json.load(f)
     cred = credentials.Certificate(firebase_creds_dict)
     initialize_app(cred)
     return firestore.client()
 
-# Crear una instancia del cliente de Firestore
 db = init_firebase()
