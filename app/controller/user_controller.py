@@ -5,7 +5,6 @@ from fastapi import HTTPException
 
 def login(user: UserLogin):
     try:
-        # Verificar las credenciales del usuario
         user = auth.get_user_by_email(user.email)
         return {"message": "Usuario autenticado exitosamente", "user_id": user.uid}
     except firebase_admin.auth.AuthError as e:
@@ -27,6 +26,7 @@ def token(token_data: TokenData):
 
 def register(user: UserRegister):
     response = create_user(user)
+    print(response)
     if "error" in response:
         raise HTTPException(status_code=500, detail=response["error"])
     return {"message": "User registered successfully"}
