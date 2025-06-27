@@ -9,66 +9,37 @@ from app.service.table_service import get_table_by_id, update_table_status
 
 def register_new_order(order: Order):
     order_data = order.dict()
-
-    # Validar que la mesa esté incluida en la orden
-    '''table_id = order_data.get('tableNumber')
-    if not table_id:
-        raise HTTPException(status_code=400, detail="Table ID is required")
-
-    # Verificar si la mesa existe utilizando get_table_by_id directamente
-    table = get_table_by_id(str(table_id))  # Asegúrate de que sea string si es necesario
-    if not table:
-        raise HTTPException(status_code=404, detail=f"Table with ID {table_id} not found")'''
-
-    # Obtener datos de los productos desde la orden
     order_items = order_data.get('orderItems', [])
+    
     if not order_items:
         raise HTTPException(status_code=400, detail="At least one order item is required")
-
-    # verificar que el amountOfPeople sea mayor a cero pero menor a la capacity de una table
-    #amountOfPeople = order_data.get('amountOfPeople')
-    #verificar que amountOfPeople sea mayor a 0 y menor a la capacidad de una mesa
-    '''if amountOfPeople <= 0 or amountOfPeople > table.get('capacity'):
-        raise HTTPException(status_code=400, detail="Amount of people must be greater than 0 and less than or equal to the table capacity")'''
-
+    
     for item in order_items:
-        # Obtener product_id del item
         product_id = item.get('product_id')
         if not product_id:
             raise HTTPException(status_code=400, detail="Product ID is required in the order item")
 
-        # Verificar si el producto existe en la base de datos
         product_data = product_by_id(product_id)
         
-        # Debugging: Print product to see its structure
         print(f"Fetched product from database: {product_data}")
 
-        # Access the nested product fields
         product = product_data.get('product', {})
         if not product:
             raise HTTPException(status_code=404, detail=f"Product with ID {product_id} not found")
 
-        # Validar que el nombre y precio coincidan con los de la base de datos
         product_name = item.get('product_name')
         product_price = item.get('product_price')
 
-        # Comparar con los valores de la base de datos
         if product_name != product.get('name'):
             raise HTTPException(status_code=400, detail=f"Product name for product ID {product_id} does not match")
 
         if product_price != str(product.get('price')): 
             raise HTTPException(status_code=400, detail=f"Product price for product ID {product_id} does not match")
 
-    # Validaciones completas, proceder a crear la orden
     response = create_order(order_data)
     if "error" in response:
         raise HTTPException(status_code=500, detail=response["error"])
-    # quiero llamar a associate_order_with_table para asociar la orden con la mesa
-    '''response_table = associate_order_with_table_controller(str(table_id), str(response["order_id"]))
-    if "error" in response_table:
-        raise HTTPException(status_code=500, detail=response_table["error"])
-    #quiero retornar response_table y response juntos
-    response["table"] = response_table'''
+    
     return response
 
 def finalize_order_controller(order_id: str):

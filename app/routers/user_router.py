@@ -20,7 +20,7 @@ async def forgot_password_user(user: UserForgotPassword):
 async def ranking(user_data=Depends(verify_token)):
     return ranking_controller()
 
-@router.get("getByID/{uid}")
+@router.get("/getByID/{uid}")
 async def get_user(uid: str, user_data=Depends(verify_token)):
     return get_user_by_id(uid)
 

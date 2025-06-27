@@ -2,50 +2,42 @@ from app.service.product_service import check_product_in_in_progress_orders, che
 from app.models.product import Product
 from app.service.category_service import check_multiple_categories_exist
 from fastapi import HTTPException
- # Asegúrate de que esta importación es correcta
 
 def register_new_product(product: Product):
 
     if check_product_name_exists(product.name):
         raise HTTPException(status_code=400, detail="Product name already exists")
-
     if(product.name == ""):
         raise HTTPException(status_code=400, detail="Name cannot be empty")
     
-
-    # Validación de precio no numérico y negativo
     try:
-        price = float(product.price)  # Intentamos convertir a float
+        price = float(product.price)
         if price <= 0:
             raise HTTPException(status_code=400, detail="Price cannot be negative or zero")
     except ValueError:
         raise HTTPException(status_code=400, detail="Price must be a number")
 
-    # Verifica si la categoría está en el formato correcto y no está vacía
-    category_str = str(product.category).strip()  # Asegúrate de que sea un string y quitar espacios innecesarios
-    if not category_str:  # Si la categoría está vacía
+
+    category_str = str(product.category).strip()
+    if not category_str:
         raise HTTPException(status_code=400, detail="Category cannot be empty")
 
-    # Verificar si la categoría existe en Firestore
     category_exists_check = check_multiple_categories_exist(category_str)
     if not category_exists_check:
         raise HTTPException(status_code=400, detail="Category does not exist")
 
-    # Validación de calorías
     if product.calories is None or (isinstance(product.calories, str) and not product.calories.strip()):
         raise HTTPException(status_code=400, detail="Calories cannot be empty or string")
 
     try:
-        # Intentar convertir a float y lanzar excepción si no es válido
         calories = float(product.calories)
         if calories < 0:
             raise HTTPException(status_code=400, detail="Calories must be a positive number")
-    except (ValueError, TypeError):  # Captura errores de conversión
+    except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Calories must be a valid number")
 
-    # Crea el producto
     product_data = product.dict()
-    product_data['category'] = category_str  # Asegúrate de que se guarde como string
+    product_data['category'] = category_str
     response = create_product(product_data)
     if "error" in response:
         raise HTTPException(status_code=500, detail=response["error"])

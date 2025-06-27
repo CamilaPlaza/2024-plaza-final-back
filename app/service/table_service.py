@@ -1,9 +1,28 @@
+from fastapi import HTTPException
 from app.db.firebase import db
 
+def get_next_table_id():
+    try:
+        tables_ref = db.collection("tables")
+        tables = tables_ref.stream()
+        ids = [int(doc.id) for doc in tables if doc.id.isdigit()]
+        return str(max(ids) + 1) if ids else "1"
+    except Exception as e:
+        raise Exception(f"Error al calcular el próximo ID de mesa: {str(e)}")
+
+def create_table(table_data):
+    try:
+        next_id = get_next_table_id()
+
+        new_table_ref = db.collection("tables").document(next_id)
+        new_table_ref.set(table_data)
+
+        return {"message": "Mesa creada correctamente", "id": next_id}
+    except Exception as e:
+        return {"error": str(e)}
+
 def get_tables_service():
-    """
-    Servicio para obtener todas las tables desde Firebase.
-    """
+
     try:
         tables_ref = db.collection('tables').stream()
         tables = []
@@ -39,9 +58,6 @@ def update_table_status(table_id: str, new_status: str):
             return {"error": str(e)}
 
 def associate_order_with_table(table_id: str, order_id: str):
-    """
-    Servicio para asociar un order ID con una tabla.
-    """
     try:
         table_ref = db.collection('tables').document(table_id)
         if table_ref.get().exists:
@@ -54,9 +70,6 @@ def associate_order_with_table(table_id: str, order_id: str):
         return {"error": str(e)}
 
 def close_table_service(table_id: str):
-    """
-    Update the status of the table to 'FREE' and set order_id to 0.
-    """
     try:
         table_ref = db.collection('tables').document(str(table_id))
         table_doc = table_ref.get()
@@ -75,9 +88,6 @@ def close_table_service(table_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 def clean_table_service(table_id: str):
-    """
-    Update the status of the table to 'FREE' and set order_id to 0.
-    """
     try:
         table_ref = db.collection('tables').document(str(table_id))
         table_doc = table_ref.get()
