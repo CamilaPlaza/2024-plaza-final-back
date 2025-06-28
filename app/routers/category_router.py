@@ -8,7 +8,7 @@ from app.controller.category_controller import (
 )
 from app.controller.product_controller import get_products_by_category_controller
 
-router = APIRouter()
+router = APIRouter(prefix="/categories", tags=["Categories"])
 
 @router.get("/")
 async def categories():

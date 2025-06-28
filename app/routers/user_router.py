@@ -6,7 +6,7 @@ from app.controller.user_controller import (
 )
 from app.dependencies import verify_token
 
-router = APIRouter()
+router = APIRouter(prefix="/users", tags=["Users"])
 
 @router.post("/register/")
 async def register_user(user: UserRegister):

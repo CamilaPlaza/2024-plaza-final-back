@@ -7,7 +7,7 @@ from app.controller.table_controller import (
     get_tables_controller, create_table_controller
 )
 
-router = APIRouter()
+router = APIRouter(prefix="/tables", tags=["Tables"])
 
 @router.get("/")
 async def tables(user_data=Depends(verify_token)):

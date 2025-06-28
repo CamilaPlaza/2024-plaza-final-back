@@ -8,7 +8,7 @@ from app.controller.product_controller import (
     lower_stock_controller, update_stock_controller
 )
 
-router = APIRouter()
+router = APIRouter(prefix="/products", tags=["Products"])
 
 @router.post("/register")
 async def register_product(product: Product, user_data=Depends(verify_token)):

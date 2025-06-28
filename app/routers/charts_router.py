@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from app.dependencies import verify_token
 from app.controller.order_controller import get_average_per_order_controller, get_average_per_person_controller, get_months_revenue
 
-router = APIRouter()
+router = APIRouter(prefix="/charts", tags=["Charts"])
 
 @router.get("/monthly-revenue")
 async def get_monthly_revenue(user_data=Depends(verify_token)):

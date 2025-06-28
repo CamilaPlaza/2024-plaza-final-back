@@ -9,7 +9,7 @@ from app.controller.order_controller import (
 )
 from app.controller.product_controller import check_product_in_in_progress_orders_controller
 
-router = APIRouter()
+router = APIRouter(prefix="/orders", tags=["Orders"])
 
 @router.post("/register")
 async def register_order(order: Order):

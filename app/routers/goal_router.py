@@ -4,7 +4,7 @@ from app.dependencies import verify_token
 from app.controller.goal_controller import create_goal_controller, goals_controller
 from app.controller.order_controller import assign_employee_to_order_controller
 
-router = APIRouter()
+router = APIRouter(prefix="/goals", tags=["Goals"])
 
 @router.post("/create")
 async def create_goal(goal: Goal, user_data=Depends(verify_token)):
