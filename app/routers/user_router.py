@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends
-from app.models.user import UserRegister, UserForgotPassword
+from app.models.user import UserRegisterInput, UserRegister, UserForgotPassword
 from app.controller.user_controller import (
-    check_level_controller, get_top_level_status_controller, level_controller, register, handle_forgot_password, ranking_controller,
+    check_level_controller, get_top_level_status_controller, level_controller,
+    register, handle_forgot_password, ranking_controller,
     get_user_by_id, delete_user_by_id, reset_monthly_points_controller, rewards_controller
 )
 from app.dependencies import verify_token
@@ -9,7 +10,8 @@ from app.dependencies import verify_token
 router = APIRouter(prefix="/users", tags=["Users"])
 
 @router.post("/register/")
-async def register_user(user: UserRegister):
+async def register_user(user_input: UserRegisterInput):
+    user = UserRegister(**user_input.dict())
     return register(user)
 
 @router.post("/forgot-password/")
@@ -24,7 +26,7 @@ async def ranking(user_data=Depends(verify_token)):
 async def get_user(uid: str, user_data=Depends(verify_token)):
     return get_user_by_id(uid)
 
-@router.delete("deleteByID/{uid}")
+@router.delete("/deleteByID/{uid}")
 async def delete_user(uid: str, user_data=Depends(verify_token)):
     return delete_user_by_id(uid)
 

@@ -1,6 +1,6 @@
 from app.db.firebase import db
 
-# Crear un nuevo usuario en Firestore
+
 def create_user(user_data):
     try:
         doc_ref = db.collection("users").document(user_data.uid)
@@ -16,7 +16,6 @@ def create_user(user_data):
     except Exception as e:  
         return {"error": str(e)}
 
-# Obtener un usuario por su email
 def get_user_by_email(email):
     try:
         users_ref = db.collection('users')
@@ -28,7 +27,6 @@ def get_user_by_email(email):
     except Exception as e:
         return {"error": str(e)}
 
-# Función para manejar la recuperación de contraseña
 def forgot_password(email):
     # Simulamos que mandamos un correo de recuperación
     return {"message": f"Password reset link sent to {email}"}

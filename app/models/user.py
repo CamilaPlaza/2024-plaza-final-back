@@ -1,19 +1,26 @@
 from datetime import date
-from pydantic import BaseModel
+from enum import Enum
+from pydantic import BaseModel, Field
 
 # Modelo para iniciar sesión
 class UserLogin(BaseModel):
     email: str
     password: str
 
-# Modelo para registrar un nuevo usuario
-class UserRegister(BaseModel):
+class UserRole(str, Enum):
+    ADMIN = "ADMIN"
+    EMPLOYEE = "EMPLOYEE"
+
+class UserRegisterInput(BaseModel):
     uid: str
     name: str
     birthday: str
     imageUrl: str
 
-# Modelo para recuperación de contraseña
+class UserRegister(UserRegisterInput):
+    role: UserRole = Field(default=UserRole.EMPLOYEE)
+
+
 class UserForgotPassword(BaseModel):
     email: str
 
