@@ -1,8 +1,9 @@
 from app.db.firebase import db
+from app.models.user import UserRegister, UserRegisterInput
 
-
-def create_user(user_data):
+def create_user(user_data: UserRegister | UserRegisterInput):
     try:
+        # si te llega UserRegisterInput o UserRegister, ambos tienen .uid, .name, etc.
         doc_ref = db.collection("users").document(user_data.uid)
         doc_ref.set({
             "name": user_data.name,
@@ -11,9 +12,11 @@ def create_user(user_data):
             "level": "1",
             "globalPoints": "0",
             "monthlyPoints": "0"
-        })
+        }, merge=True)  # idempotente si reintentas
         return {"message": "User data saved successfully"}
-    except Exception as e:  
+    except Exception as e:
+        # ayudá al debug por ahora
+        print("create_user ERROR:", repr(e))
         return {"error": str(e)}
 
 def get_user_by_email(email):
