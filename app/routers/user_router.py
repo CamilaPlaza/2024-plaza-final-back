@@ -6,6 +6,7 @@ from app.controller.user_controller import (
     get_user_by_id, delete_user_by_id, reset_monthly_points_controller, rewards_controller
 )
 from app.dependencies import verify_token
+from fastapi import HTTPException
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -22,8 +23,12 @@ async def forgot_password_user(user: UserForgotPassword):
 async def ranking(user_data=Depends(verify_token)):
     return ranking_controller()
 
+
 @router.get("/getByID/{uid}")
 async def get_user(uid: str, user_data=Depends(verify_token)):
+    token_uid = user_data.get("uid")
+    if uid != token_uid:
+        raise HTTPException(status_code=403, detail="Forbidden")
     return get_user_by_id(uid)
 
 @router.delete("/deleteByID/{uid}")
