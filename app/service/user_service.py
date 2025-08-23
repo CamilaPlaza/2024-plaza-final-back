@@ -1,9 +1,9 @@
 from app.db.firebase import db
 from app.models.user import UserRegister, UserRegisterInput
+from firebase_admin import auth
 
 def create_user(user_data: UserRegister | UserRegisterInput):
     try:
-        # si te llega UserRegisterInput o UserRegister, ambos tienen .uid, .name, etc.
         doc_ref = db.collection("users").document(user_data.uid)
         doc_ref.set({
             "name": user_data.name,
@@ -12,53 +12,50 @@ def create_user(user_data: UserRegister | UserRegisterInput):
             "level": "1",
             "globalPoints": "0",
             "monthlyPoints": "0"
-        }, merge=True)  # idempotente si reintentas
+        }, merge=True)
         return {"message": "User data saved successfully"}
     except Exception as e:
-        # ayudá al debug por ahora
-        print("create_user ERROR:", repr(e))
         return {"error": str(e)}
 
 def get_user_by_email(email):
     try:
-        users_ref = db.collection('users')
-        query = users_ref.where('email', '==', email).stream()
-
-        for user in query:
-            return user.to_dict()
+        user = auth.get_user_by_email(email)
+        return {"uid": user.uid, "email": user.email}
+    except auth.UserNotFoundError:
         return None
     except Exception as e:
         return {"error": str(e)}
 
 def forgot_password(email):
-    # Simulamos que mandamos un correo de recuperación
-    return {"message": f"Password reset link sent to {email}"}
+    try:
+        link = auth.generate_password_reset_link(email)
+        return {"message": "Password reset link generated", "link": link}
+    except auth.UserNotFoundError:
+        return {"error": "Email not found"}
+    except Exception as e:
+        return {"error": str(e)}
 
 def user_by_id(uid):
     try:
-        # Referencia al documento del usuario
         user_ref = db.collection('users').document(uid)
-        user_doc = user_ref.get()  # Obtener el documento
+        user_doc = user_ref.get()
         
-        if user_doc.exists:  # Verificar si el documento existe
-            user_data = user_doc.to_dict()  # Obtener datos como un diccionario
+        if user_doc.exists:
+            user_data = user_doc.to_dict()
             
-            # Obtener el nivel del usuario
             level_id = user_data.get("level")
             if level_id:
-                # Referencia al documento del nivel
                 level_ref = db.collection('levels').document(level_id)
-                level_doc = level_ref.get()  # Obtener el documento del nivel
+                level_doc = level_ref.get()
                 
-                if level_doc.exists:  # Verificar si el documento del nivel existe
-                    level_data = level_doc.to_dict()  # Obtener datos del nivel
-                    # Crear una lista que contenga el ID y el nombre del nivel
+                if level_doc.exists:
+                    level_data = level_doc.to_dict()
                     user_data['level'] = {
-                        'id': level_id,  # ID del nivel
-                        'name': level_data.get("name")  # Nombre del nivel
+                        'id': level_id,
+                        'name': level_data.get("name")
                     }
             
-            return user_data  # Retornar los datos del usuario, ahora con el nivel incluido
+            return user_data
         else:
             return {"error": "User not found"}
     except Exception as e:
@@ -96,24 +93,22 @@ def ranking():
 
 def rewards(level_id):
     try:
-        # Referencia al documento del nivel
         level_ref = db.collection('levels').document(level_id)
-        level_doc = level_ref.get()  # Obtener el documento del nivel
+        level_doc = level_ref.get()
         
-        if level_doc.exists:  # Verificar si el nivel existe
+        if level_doc.exists:   
             level_data = level_doc.to_dict()
-            rewards_ids = level_data.get("rewards", "").split(", ")  # Obtener y dividir los IDs de rewards
+            rewards_ids = level_data.get("rewards", "").split(", ")
             
-            rewards_list = []  # Lista para almacenar los datos de cada recompensa
+            rewards_list = []
             for reward_id in rewards_ids:
-                # Referencia al documento de cada recompensa
                 reward_ref = db.collection('rewards').document(reward_id)
                 reward_doc = reward_ref.get()
                 
-                if reward_doc.exists:  # Verificar si la recompensa existe
-                    rewards_list.append(reward_doc.to_dict())  # Agregar los datos de la recompensa a la lista
+                if reward_doc.exists:
+                    rewards_list.append(reward_doc.to_dict())
             
-            return rewards_list # Retornar las recompensas como un diccionario
+            return rewards_list
         else:
             return {"error": "Level not found"}
     except Exception as e:
@@ -121,11 +116,10 @@ def rewards(level_id):
 
 def level(level_id):
     try:
-        # Referencia al documento del nivel
         level_ref = db.collection('levels').document(level_id)
-        level_doc = level_ref.get()  # Obtener el documento del siguiente nivel
+        level_doc = level_ref.get()
         
-        if level_doc.exists:  # Verificar si el nivel existe
+        if level_doc.exists:
             level_data = level_doc.to_dict()
             return level_data
         else:
@@ -135,37 +129,30 @@ def level(level_id):
 
 def check_level(uid):
     try:
-        # Reference to the user's document
         user_ref = db.collection('users').document(uid)
-        user_doc = user_ref.get()  # Get the document
+        user_doc = user_ref.get()
         
-        if user_doc.exists:  # Check if the document exists
-            user_data = user_doc.to_dict()  # Get data as a dictionary
+        if user_doc.exists:
+            user_data = user_doc.to_dict()
             
-            # Get the user's current level as a string and convert it to int
-            current_level = int(user_data.get("level", "1"))  # Default to level 1 if missing
-            current_global_points = int(user_data.get("globalPoints", "0"))  # Convert to int
             
-            # Get the points required for the next level from the levels collection
+            current_level = int(user_data.get("level", "1"))
+            current_global_points = int(user_data.get("globalPoints", "0"))
+            
             next_level_ref = db.collection("levels").document(str(current_level + 1)).get()
             
             if next_level_ref.exists:
                 next_level_data = next_level_ref.to_dict()
-                # Convert points required for the next level to int
-                next_level_points_required = int(next_level_data['points'])  # Convert to int
+                next_level_points_required = int(next_level_data['points'])
                 
-                # Check if user qualifies for the next level
                 if current_global_points >= next_level_points_required:
-                    # Update user's level to the next level (convert back to string)
                     new_level = current_level + 1
                     user_ref.update({"level": str(new_level)})
-                    # Update the user_data to reflect the new level
                     user_data["level"] = str(new_level)
-                    user_data["level_updated"] = True  # Flag to indicate level was updated
+                    user_data["level_updated"] = True
                 else:
-                    user_data["level_updated"] = False  # No level change
+                    user_data["level_updated"] = False
                 
-            # Return user data with level update status
             return user_data
         else:
             return {"error": "User not found"}
@@ -174,24 +161,19 @@ def check_level(uid):
 
 def get_top_level_status(level_id):
     try:
-        # Stream all levels from Firestore
         levels_ref = db.collection('levels').stream()
         
-        # Collect level IDs, converting them to integers for comparison
         levels_list = []
         for level in levels_ref:
             level_data = level.to_dict()
-            level_data['id'] = level.id  # Use document ID as the level ID
+            level_data['id'] = level.id
             levels_list.append(int(level_data['id']))
         print(levels_list)
-        # Ensure there are valid level IDs to compare
         if not levels_list or (int(level_id) not in levels_list):
             return {"error": "No levels found or levels have invalid IDs."}
         
-        # Find the highest level ID
         max_level_id = max(levels_list)
         
-        # Check if the provided level_id (converted to int) is the highest level
         return {"isTopLevel": int(level_id) == max_level_id}
     
     except ValueError:
@@ -200,16 +182,12 @@ def get_top_level_status(level_id):
         return {"error": str(e)}
 
 def reset_monthly_points():
-    """
-    Resets monthly points for all users in the Firestore database.
-    Returns a message indicating the completion status.
-    """
     users_ref = db.collection("users").stream()
     updated_users_count = 0
 
     for user in users_ref:
         user_ref = db.collection("users").document(user.id)
-        user_ref.update({"monthlyPoints": "0"})  # Resetting to zero
-        updated_users_count += 1  # Increment the count of updated users
+        user_ref.update({"monthlyPoints": "0"})
+        updated_users_count += 1 
 
     return f"Monthly points reset for {updated_users_count} users."

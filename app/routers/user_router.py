@@ -11,9 +11,9 @@ from fastapi import HTTPException
 router = APIRouter(prefix="/users", tags=["Users"])
 
 @router.post("/register/")
-async def register_user(user_input: UserRegisterInput):
+async def register_user(user_input: UserRegisterInput, user_data=Depends(verify_token)):
     user = UserRegister(**user_input.dict())
-    return register(user)
+    return register(user, user_data)
 
 @router.post("/forgot-password/")
 async def forgot_password_user(user: UserForgotPassword):
@@ -54,3 +54,5 @@ async def reset_monthly_points(user_data=Depends(verify_token)):
 @router.get("/level/{level_id}")
 async def level(level_id: str, user_data=Depends(verify_token)):
     return level_controller(level_id)
+
+

@@ -14,7 +14,6 @@ def login(user: UserLogin):
 
 def token(token_data: TokenData):
     try:
-        # Verificar el token enviado por el cliente
         decoded_token = auth.verify_id_token(token_data.id_token)
         uid = decoded_token['uid']
         return {"message": "Token verificado", "user_id": uid}
@@ -24,11 +23,17 @@ def token(token_data: TokenData):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-def register(user: UserRegister):
-    response = create_user(user)
-    print(response)
-    if "error" in response:
-        raise HTTPException(status_code=500, detail=response["error"])
+def register(user: UserRegister, token_claims: dict):
+    token_uid = token_claims.get("uid")
+    if not token_uid:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    if user.uid != token_uid:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    resp = create_user(user)
+    if "error" in resp:
+        raise HTTPException(status_code=400, detail=resp["error"])
     return {"message": "User registered successfully"}
 
 
@@ -48,8 +53,9 @@ def get_user_by_id(uid: str):
 def delete_user_by_id(uid: str):
     response = delete_user(uid)
     if "error" in response:
-        raise HTTPException(status_code=500, detail=response["error"])
-    return {"message": "Product deleted successfully"}
+        raise HTTPException(status_code=404, detail=response["error"])
+    return {"message": "User deleted successfully"}
+
 
 def ranking_controller():
     try: 
