@@ -29,6 +29,6 @@ async def close_table(table_id: str, body: Dict[str, Union[str, int]], user_data
 async def clean_table(table_id: str, body: Dict[str, Union[str, int]], user_data=Depends(verify_token)):
     return clean_table_controller(table_id, body)
 
-@router.post("/create")
-async def create_table(body: Dict[str, Union[str, int]], user_data=Depends(verify_token)):
-    return create_table_controller(body)
+# @router.post("/create")
+# async def create_table(body: Dict[str, Union[str, int]], user_data=Depends(verify_token)):
+#    return create_table_controller(body)
