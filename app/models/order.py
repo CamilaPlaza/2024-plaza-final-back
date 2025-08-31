@@ -1,14 +1,13 @@
-from typing import Any, List
+from typing import List, Optional
 from app.models.order_item import OrderItem
 from pydantic import BaseModel, Field
 
-# Modelo para registrar un nuevo producto
 class Order(BaseModel):
     status: str
-    amountOfPeople: int
-    tableNumber: int
+    amountOfPeople: int = Field(ge=0)
+    tableNumber: int = Field(ge=0)
     date: str
     time: str
     total: str
     orderItems: List[OrderItem]
-    employee: str
+    employee: Optional[str] = None

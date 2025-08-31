@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends
-from typing import Any, Dict, List
+from fastapi import APIRouter, Depends, Query
+from typing import Any, Dict, List, Optional
 from app.models.order import Order
 from app.dependencies import verify_token
 from app.controller.order_controller import (
@@ -25,7 +25,7 @@ async def update_order_items(order_id: str, body: Dict[str, Any], user_data=Depe
 async def get_order(order_id: str, user_data=Depends(verify_token)):
     return get_order_controller(order_id)
 
-@router.get("/")
+@router.get("")
 async def orders(user_data=Depends(verify_token)):
     return get_orders()
 
@@ -38,11 +38,11 @@ async def assign_order_to_table(order_id: str, table_id: int, user_data=Depends(
     return assign_order_to_table_controller(order_id, table_id)
 
 @router.delete("/delete-order-item/{order_id}")
-async def delete_order_item(order_id: str, order_items: List[str], user_data=Depends(verify_token)):
+async def delete_order_item(order_id: str, order_items: Optional[List[str]] = Query(None), user_data=Depends(verify_token)):
     return delete_order_items_controller(order_id, order_items)
 
 @router.put("/assign-order-employee/{orderId}/{uid}")
-async def assign_employee_to_order(orderId: int, uid: str, user_data=Depends(verify_token)):
+async def assign_employee_to_order(orderId: str, uid: str, user_data=Depends(verify_token)):
     return assign_employee_to_order_controller(orderId, uid)
 
 @router.get("/products")

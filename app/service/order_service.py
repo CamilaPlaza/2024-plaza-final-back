@@ -7,12 +7,11 @@ from fastapi import HTTPException
 
 def create_order(order_data):
     try:
-        #table_id = str(order_data.get('tableNumber'))
         next_id = get_next_order_id_from_existing()
-        # Crear una nueva orden
+        
         orders_ref = db.collection('orders')
         new_order_ref = orders_ref.document(str(next_id))
-        new_order_ref.set(order_data)  # Crear la nueva orden en Firebase
+        new_order_ref.set(order_data)
 
         # Cambiar el estado de la mesa a 'BUSY'
         '''print(table_id)
@@ -74,9 +73,6 @@ def finalize_order(order_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 def get_order_by_id(order_id: str):
-    """
-    Obtiene una orden por su ID.
-    """
     try:
         order_ref = db.collection('orders').document(order_id)
         order_doc = order_ref.get()
@@ -89,9 +85,6 @@ def get_order_by_id(order_id: str):
 
 
 def get_all_orders():
-    """
-    Obtiene todas las órdenes de la colección 'orders'.
-    """
     try:
         orders_ref = db.collection('orders').stream()
         orders_list = []
@@ -107,9 +100,6 @@ def get_all_orders():
         raise HTTPException(status_code=500, detail=f"Error retrieving orders: {str(e)}")
 
 def get_next_order_id_from_existing():
-    """
-    Obtiene el próximo ID disponible en la colección 'products'.
-    """
     try:
         # Obtener todos los documentos de la colección 'products'
         orders = db.collection('orders').stream()
@@ -344,10 +334,9 @@ def assign_order_to_table_service(order_id: str, table_id: int):
 def assign_employee_to_order(order_id, uid):
     order_ref = db.collection("orders").document(order_id)
     
-    # Update the order with the employee UID
     try:
         order_ref.update({
-            "employee": uid  # Assuming you store employee's UID in the 'employee' field
+            "employee": uid
         })
         return {"message": "Employee assigned successfully"}
     except Exception as e:
