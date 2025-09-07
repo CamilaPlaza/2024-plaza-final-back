@@ -29,16 +29,23 @@ def get_employees_by_shift(shift_id):
 def get_current_shift_id():
     now = datetime.now().time()
 
-    docs = db.collection("shifts").where("status", "==", "ACTIVE").stream()
+    docs = db.collection("shifts").stream()
     for doc in docs:
-        data = doc.to_dict()
-        start = datetime.strptime(data["start_time"], "%H:%M").time()
-        end = datetime.strptime(data["end_time"], "%H:%M").time()
+        data = doc.to_dict() or {}
+        start_str = data.get("start_time")
+        end_str   = data.get("end_time")
+        if not start_str or not end_str:
+            continue
 
-        if start > end:
-            if now >= start or now <= end:
-                return doc.id
+        start = datetime.strptime(start_str, "%H:%M").time()
+        end   = datetime.strptime(end_str,   "%H:%M").time()
+
+        if start <= end:
+            in_range = start <= now < end
         else:
-            if start <= now < end:
-                return doc.id
+            in_range = (now >= start) or (now < end)
+
+        if in_range:
+            return data.get("id") or doc.id
+
     return None

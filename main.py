@@ -13,9 +13,13 @@ from app.api import router
 app = FastAPI()
 
 origins = [
-    "http://localhost:4201", 
-    "https://two024-ranchoaparte-back.onrender.com",
+    "http://localhost:4201",
+    "http://127.0.0.1:4201",
+    "http://localhost:4200",
+    "http://127.0.0.1:4200",
     "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://two024-ranchoaparte-back.onrender.com",
     "https://2024-messidepaul-front.vercel.app", 
     "https://2024-ranchoaparte-front-ivory.vercel.app",
     "http://2024-huidobro-front.vercel.app",

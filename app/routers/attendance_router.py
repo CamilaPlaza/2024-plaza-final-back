@@ -20,5 +20,5 @@ def check_out(attendance_id: str, user_data=Depends(verify_token)):
     return register_attendance_check_out(attendance_id)
 
 @router.get("/open-attendance")
-def get_open_attendance(employee_id: str, shift_id: str, user_data=Depends(verify_token)):
-    return get_open_attendance_controller(employee_id, shift_id)
+def get_open_attendance(employee_id: str, user_data=Depends(verify_token)):
+    return get_open_attendance_controller(employee_id)

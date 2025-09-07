@@ -4,18 +4,23 @@ from firebase_admin import auth
 
 def create_user(user_data: UserRegister | UserRegisterInput):
     try:
+        role = getattr(user_data, "role", UserRole.EMPLOYEE)
+
         doc_ref = db.collection("users").document(user_data.uid)
         doc_ref.set({
             "name": user_data.name,
             "birthday": user_data.birthday,
             "imageUrl": user_data.imageUrl,
+            "role": str(role),
             "level": "1",
             "globalPoints": "0",
             "monthlyPoints": "0"
         }, merge=True)
-        return {"message": "User data saved successfully"}
+
+        return {"message": "User data saved successfully", "uid": user_data.uid, "role": str(role)}
     except Exception as e:
         return {"error": str(e)}
+
 
 def get_user_by_email(email):
     try:
