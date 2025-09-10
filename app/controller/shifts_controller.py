@@ -1,7 +1,7 @@
 from app.models.shift import Shift
 from app.models.shift_employee import ShiftEmployee
 from fastapi import HTTPException
-from app.service.shift_service import create_shift, assign_employee_to_shift, get_current_shift_id, get_employees_by_shift
+from app.service.shift_service import create_shift, assign_employee_to_shift, get_current_shift_id, get_employees_by_shift, get_assigned_shift_for_employee
 
 def register_new_shift(shift: Shift):
     try:
@@ -45,3 +45,11 @@ def get_current_shift_controller():
     if not shift_id:
         raise HTTPException(status_code=404, detail="No current shift found")
     return {"shift_id": shift_id}
+
+def get_assigned_shift_for_employee_controller(employee_id: str):
+    if not employee_id:
+        raise HTTPException(status_code=400, detail="Missing employee_id")
+    data = get_assigned_shift_for_employee(employee_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="No shift assigned")
+    return data

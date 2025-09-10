@@ -3,7 +3,8 @@ from fastapi import HTTPException
 from app.service.attendance_service import (
     create_attendance_record,
     update_attendance_checkout,
-    find_open_attendance_for_today
+    find_open_attendance_for_today,
+    make_checkin_preview,   # 👈 nuevo
 )
 
 def register_attendance_check_in(employee_id: str, shift_id: str, observations: Optional[str] = None):
@@ -12,7 +13,7 @@ def register_attendance_check_in(employee_id: str, shift_id: str, observations: 
 
     existing = find_open_attendance_for_today(employee_id)
     if existing:
-        return {"created": False, "id": existing}
+        return {"created": False, "id": existing if isinstance(existing, str) else existing.get("id")}
 
     created = create_attendance_record(employee_id, shift_id, observations)
     return {"created": True, "id": created["id"]}
@@ -29,4 +30,5 @@ def get_open_attendance_controller(employee_id: str):
         return {"open": True, "attendance_id": attendance_id}
     return {"open": False}
 
-
+def get_checkin_preview_controller(employee_id: str, shift_id: str):
+    return make_checkin_preview(employee_id, shift_id)

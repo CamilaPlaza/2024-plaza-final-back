@@ -1,5 +1,8 @@
-from datetime import datetime, date, time
+from datetime import datetime, date, time, timedelta
 from app.db.firebase import db
+
+LATE_TOLERANCE_MIN = 15   # tolerancia para llegar "a tiempo"
+EARLY_WINDOW_MIN   = 30   # se permite llegar hasta 30' antes
 
 def today_str() -> str:
     return date.today().isoformat()
@@ -70,3 +73,102 @@ def find_open_attendance_for_today(employee_id: str):
         return None
     except Exception:
         return None
+
+# ======================
+#   LÓGICA DE PREVIEW
+# ======================
+
+def _get_shift(shift_id: str) -> dict | None:
+    """Lee el shift y devuelve dict con start_time/end_time (strings HH:MM) y name si existe."""
+    snap = db.collection("shifts").document(shift_id).get()
+    if not snap.exists:
+        return None
+    return snap.to_dict() or {}
+
+def _parse_hhmm(hhmm: str) -> time:
+    return datetime.strptime(hhmm, "%H:%M").time()
+
+def _evaluate_checkin_against_shift(shift_id: str, now_dt: datetime) -> dict:
+
+    shift = _get_shift(shift_id)
+    if not shift:
+        return {
+            "off_shift": True,
+            "is_late": False,
+            "minutes_late": 0,
+            "expected_start": None,
+            "expected_end": None,
+        }
+
+    start_s = shift.get("start_time")
+    end_s   = shift.get("end_time")
+    if not start_s or not end_s:
+        return {
+            "off_shift": True,
+            "is_late": False,
+            "minutes_late": 0,
+            "expected_start": start_s,
+            "expected_end": end_s,
+        }
+
+    start_t = _parse_hhmm(start_s)
+    end_t   = _parse_hhmm(end_s)
+
+    start_dt = datetime.combine(now_dt.date(), start_t)
+    end_dt   = datetime.combine(now_dt.date(), end_t)
+    if end_t <= start_t:
+        end_dt += timedelta(days=1)
+
+    early_from   = start_dt - timedelta(minutes=EARLY_WINDOW_MIN)
+    late_limit   = start_dt + timedelta(minutes=LATE_TOLERANCE_MIN)
+
+
+    if early_from <= now_dt <= end_dt:
+        if now_dt <= late_limit:
+            return {
+                "off_shift": False,
+                "is_late": False,
+                "minutes_late": 0,
+                "expected_start": start_s,
+                "expected_end": end_s,
+            }
+        else:
+            mins = int((now_dt - start_dt).total_seconds() // 60)
+            return {
+                "off_shift": False,
+                "is_late": True,
+                "minutes_late": max(mins, 0),
+                "expected_start": start_s,
+                "expected_end": end_s,
+            }
+    else:
+        return {
+            "off_shift": True,
+            "is_late": False,
+            "minutes_late": 0,
+            "expected_start": start_s,
+            "expected_end": end_s,
+        }
+
+def make_checkin_preview(employee_id: str, shift_id: str) -> dict:
+    existing = find_open_attendance_for_today(employee_id)
+    if existing:
+        att_id = existing["id"] if isinstance(existing, dict) else existing
+        return {
+            "can_check_in": False,
+            "reason": "already_open",
+            "attendance_id": att_id,
+        }
+
+    now_dt = datetime.now()
+    eval_res = _evaluate_checkin_against_shift(shift_id, now_dt)
+    return {
+        "can_check_in": True,
+        "reason": "ok",
+        "off_shift": eval_res["off_shift"],
+        "is_late": eval_res["is_late"],
+        "minutes_late": eval_res["minutes_late"],
+        "expected_start": eval_res.get("expected_start"),
+        "expected_end": eval_res.get("expected_end"),
+        "now": iso_now(),
+    }

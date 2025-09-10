@@ -21,12 +21,12 @@ def assign_employee_to_shift(data):
 
 def get_employees_by_shift(shift_id):
     try:
-        query = db.collection("shift_assignments").where("shift_id", "==", shift_id).stream()
+        query = db.collection("shift_assignments").where("id_shift", "==", shift_id).stream()
         return [doc.to_dict() for doc in query]
     except Exception as e:
         return {"error": str(e)}
 
-def get_current_shift_id():
+def get_current_shift_id(): #Shift actual del día, el momento
     now = datetime.now().time()
 
     docs = db.collection("shifts").stream()
@@ -49,3 +49,39 @@ def get_current_shift_id():
             return data.get("id") or doc.id
 
     return None
+
+
+def get_assigned_shift_for_employee(employee_id: str):
+
+    try:
+        if not employee_id:
+            return {"error": "Missing employee_id"}
+
+        q = (db.collection("shift_assignments")
+               .where("id_employee", "==", employee_id)
+               .limit(1)
+               .stream())
+
+        assignment_doc = None
+        for doc in q:
+            assignment_doc = doc
+            break
+
+        if not assignment_doc:
+            return None
+
+        assignment = assignment_doc.to_dict() or {}
+        shift_id = assignment.get("id_shift")
+        if not shift_id:
+            return {"error": "Assignment without id_shift"}
+        
+        shift_snap = db.collection("shifts").document(shift_id).get()
+        if not shift_snap.exists:
+            return {"error": "Shift not found"}
+
+        shift = shift_snap.to_dict() or {}
+        shift["id"] = shift_snap.id
+        return shift
+
+    except Exception as e:
+        return {"error": str(e)}

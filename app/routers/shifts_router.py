@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends
-from app.controller.shifts_controller import get_current_shift_controller, register_new_shift, assign_shift_to_employee, get_employees_from_shift
+from fastapi import APIRouter, Depends, HTTPException
+from app.controller.shifts_controller import get_assigned_shift_for_employee_controller, get_current_shift_controller, register_new_shift, assign_shift_to_employee, get_employees_from_shift
 from app.models.shift import Shift
 from app.models.shift_employee import ShiftEmployee
 from app.dependencies import verify_token
@@ -20,3 +20,7 @@ def list_employees(shift_id: str, user_data=Depends(verify_token)):
 @router.get("/current")
 def get_current_shift(user_data=Depends(verify_token)):
     return get_current_shift_controller()
+
+@router.get("/assigned")
+def get_assigned_shift(employee_id: str, user_data=Depends(verify_token)):
+        return get_assigned_shift_for_employee_controller(employee_id)
