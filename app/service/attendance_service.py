@@ -88,6 +88,16 @@ def _get_shift(shift_id: str) -> dict | None:
 def _parse_hhmm(hhmm: str) -> time:
     return datetime.strptime(hhmm, "%H:%M").time()
 
+def has_any_attendance_today(employee_id: str) -> bool:
+    today = today_str()
+    q = (db.collection("attendance")
+           .where("id_employee", "==", employee_id)
+           .where("work_date", "==", today)
+           .limit(1))
+    for _ in q.stream():
+        return True
+    return False
+
 def _evaluate_checkin_against_shift(shift_id: str, now_dt: datetime) -> dict:
 
     shift = _get_shift(shift_id)
@@ -149,7 +159,6 @@ def _evaluate_checkin_against_shift(shift_id: str, now_dt: datetime) -> dict:
             "expected_start": start_s,
             "expected_end": end_s,
         }
-
 def make_checkin_preview(employee_id: str, shift_id: str) -> dict:
     existing = find_open_attendance_for_today(employee_id)
     if existing:
@@ -158,6 +167,12 @@ def make_checkin_preview(employee_id: str, shift_id: str) -> dict:
             "can_check_in": False,
             "reason": "already_open",
             "attendance_id": att_id,
+        }
+
+    if has_any_attendance_today(employee_id):
+        return {
+            "can_check_in": False,
+            "reason": "already_completed",
         }
 
     now_dt = datetime.now()
@@ -172,3 +187,17 @@ def make_checkin_preview(employee_id: str, shift_id: str) -> dict:
         "expected_end": eval_res.get("expected_end"),
         "now": iso_now(),
     }
+
+def get_today_attendance_data(employee_id: str) -> dict | None:
+    today = today_str()
+    q = (db.collection("attendance")
+           .where("id_employee", "==", employee_id)
+           .where("work_date", "==", today))
+
+    for doc in q.stream():
+        d = doc.to_dict() or {}
+        d["id"] = doc.id
+        return d
+    return None
+
+
