@@ -1,51 +1,99 @@
 from fastapi import HTTPException
-from app.models.task import Task
-from app.models.shift_employee import ShiftEmployee
+from typing import Optional
+
+from app.models.payloads import CreateTaskPayload, AssignTasksPayload
 from app.service.task_service import (
-    create_task,
-    update_task_status,
-    assign_tasks_to_employee_shift,
+    create_and_attach_task_service,
+    assign_tasks_bulk_service,
+    update_task_status_service,
+    get_tasks_for_employee_service,
+    is_task_in_employee_shift,
 )
 
-def create_new_task(task: Task):
+ALLOWED_STATUSES = {"PENDING", "IN_PROGRESS", "COMPLETED"}
+
+def _is_admin(user_data: dict) -> bool:
+    role = str(user_data.get("role", "")).strip().lower()
+    return role in {"admin", "administrator"}
+
+def _uid(user_data: dict) -> str:
+    return str(user_data.get("uid") or user_data.get("user_id") or "")
+
+# --------------------
+# controllers
+# --------------------
+
+def create_and_attach_task_controller(payload: CreateTaskPayload, user_data: dict):
+    if not _is_admin(user_data):
+        raise HTTPException(status_code=403, detail="Only admins can create tasks")
+
     try:
-        response = create_task(task.dict())
-        if "error" in response:
-            raise HTTPException(status_code=500, detail=response["error"])
-        return {"message": "Task created successfully", "id": response["id"]}
+        creator = _uid(user_data)
+        resp = create_and_attach_task_service(payload.dict(), created_by=creator)
+        if "error" in resp:
+            raise HTTPException(status_code=500, detail=resp["error"])
+        return resp  # {message, id, employee_id, shift_id}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def update_task_state(task_id: str, status: str):
-    if status not in ["PENDING", "IN_PROGRESS", "COMPLETED"]:
+def assign_tasks_bulk_controller(payload: AssignTasksPayload, user_data: dict):
+    if not _is_admin(user_data):
+        raise HTTPException(status_code=403, detail="Only admins can assign tasks")
+
+    try:
+        creator = _uid(user_data)
+        resp = assign_tasks_bulk_service(payload.dict(), created_by=creator)
+        if "error" in resp:
+            raise HTTPException(status_code=500, detail=resp["error"])
+        return resp  # {message, added}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+def update_task_status_controller(employee_id: str, shift_id: str, task_id: str, status: str, user_data: dict):
+    status = str(status or "").upper()
+    if status not in ALLOWED_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid status value")
-    if not task_id or len(task_id.strip()) == 0:
-        raise HTTPException(status_code=400, detail="Task ID is required")
+
+    # Empleado solo puede tocar lo suyo
+    if not _is_admin(user_data):
+        me = _uid(user_data)
+        if me != employee_id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        try:
+            if not is_task_in_employee_shift(employee_id, shift_id, task_id):
+                raise HTTPException(status_code=403, detail="Task not found in your shift")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
     try:
-        response = update_task_status(task_id, status)
-        if "error" in response:
-            raise HTTPException(status_code=500, detail=response["error"])
-        return {"message": "Task status updated", "id": task_id, "new_status": status}
+        resp = update_task_status_service(employee_id, shift_id, task_id, status)
+        if "error" in resp:
+            raise HTTPException(status_code=500, detail=resp["error"])
+        return resp  # {message, id, new_status}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def assign_task(shift_employee: ShiftEmployee):
-    if not shift_employee.id_employee or len(shift_employee.id_employee.strip()) == 0:
-        raise HTTPException(status_code=400, detail="Employee ID is required")
-    if not shift_employee.id_shift or len(shift_employee.id_shift.strip()) == 0:
-        raise HTTPException(status_code=400, detail="Shift ID is required")
-    if not shift_employee.assigned_tasks or not isinstance(shift_employee.assigned_tasks, list) or len(shift_employee.assigned_tasks) == 0:
-        raise HTTPException(status_code=400, detail="Assigned tasks list cannot be empty")
-
-    for task_id in shift_employee.assigned_tasks:
-        if not isinstance(task_id, str) or len(task_id.strip()) == 0:
-            raise HTTPException(status_code=400, detail="Each task ID must be a non-empty string")
+def get_tasks_for_employee_controller(employee_id: str, shift_id: Optional[str], user_data: dict):
+    # Empleado solo puede leer lo suyo; admin cualquiera
+    if not _is_admin(user_data):
+        me = _uid(user_data)
+        if me != employee_id:
+            raise HTTPException(status_code=403, detail="Forbidden")
 
     try:
-        response = assign_tasks_to_employee_shift(shift_employee.dict())
-        if "error" in response:
-            raise HTTPException(status_code=500, detail=response["error"])
-        return {"message": "Tasks assigned successfully"}
+        resp = get_tasks_for_employee_service(employee_id, shift_id)
+        if "error" in resp:
+            raise HTTPException(status_code=500, detail=resp["error"])
+        return resp  # {"tasks":[...]}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
