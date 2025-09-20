@@ -1,4 +1,5 @@
-from app.service.user_service import check_level, create_user, get_top_level_status, get_user_by_email, forgot_password, level, ranking, reset_monthly_points, rewards, user_by_id, delete_user
+from typing import Any, Dict, List
+from app.service.user_service import check_level, create_user, get_top_level_status, get_user_by_email, forgot_password, level, list_employees_with_shift_service, ranking, reset_monthly_points, rewards, user_by_id, delete_user
 from app.models.user import TokenData, UserLogin, UserRegister, UserForgotPassword
 from firebase_admin import auth
 from fastapi import HTTPException
@@ -22,7 +23,6 @@ def token(token_data: TokenData):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-
 def register(user: UserRegister, token_claims: dict):
     token_uid = token_claims.get("uid")
     if not token_uid:
@@ -35,7 +35,6 @@ def register(user: UserRegister, token_claims: dict):
     if "error" in resp:
         raise HTTPException(status_code=400, detail=resp["error"])
     return {"message": "User registered successfully"}
-
 
 def handle_forgot_password(user: UserForgotPassword):
     db_user = get_user_by_email(user.email)
@@ -55,7 +54,6 @@ def delete_user_by_id(uid: str):
     if "error" in response:
         raise HTTPException(status_code=404, detail=response["error"])
     return {"message": "User deleted successfully"}
-
 
 def ranking_controller():
     try: 
@@ -98,3 +96,6 @@ def reset_monthly_points_controller():
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+def employees_with_shift_controller() -> List[Dict[str, Any]]:
+    return list_employees_with_shift_service()

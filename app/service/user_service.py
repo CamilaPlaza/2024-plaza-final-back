@@ -1,17 +1,18 @@
+from typing import Any, Dict, List, Optional
 from app.db.firebase import db
-from app.models.user import UserRegister, UserRegisterInput
+from app.models.user import UserRegister, UserRegisterInput, UserRole
 from firebase_admin import auth
 
 def create_user(user_data: UserRegister | UserRegisterInput):
     try:
         role = getattr(user_data, "role", UserRole.EMPLOYEE)
-
         doc_ref = db.collection("users").document(user_data.uid)
+
         doc_ref.set({
             "name": user_data.name,
             "birthday": user_data.birthday,
             "imageUrl": user_data.imageUrl,
-            "role": str(role),
+            "role": role.value,
             "level": "1",
             "globalPoints": "0",
             "monthlyPoints": "0"
@@ -65,7 +66,6 @@ def user_by_id(uid):
             return {"error": "User not found"}
     except Exception as e:
         return {"error": str(e)}
-
 
 def delete_user(uid):
     try:
@@ -196,3 +196,53 @@ def reset_monthly_points():
         updated_users_count += 1 
 
     return f"Monthly points reset for {updated_users_count} users."
+
+def _get_assigned_shift_for_employee(uid: str) -> Optional[Dict[str, Any]]:
+
+    try:
+        q = (
+            db.collection("shift_assignments")
+              .where("id_employee", "==", uid)
+              .limit(1)
+              .get()
+        )
+        if not q:
+            return None
+
+        sa = q[0].to_dict() or {}
+        shift_id = sa.get("id_shift")
+        if not shift_id:
+            return None
+
+        shift_doc = db.collection("shifts").document(shift_id).get()
+        if not shift_doc.exists:
+            return {"id": shift_id, "name": None, "start_time": None, "end_time": None}
+
+        s = shift_doc.to_dict() or {}
+        return {
+            "id": shift_id,
+            "name": s.get("name"),
+            "start_time": s.get("start_time"),
+            "end_time": s.get("end_time"),
+        }
+    except Exception:
+        return None
+
+def list_employees_with_shift_service() -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    
+    docs = db.collection("users").where("role", "==", "EMPLOYEE").stream()
+    for d in docs:
+        data = d.to_dict() or {}
+        uid = data.get("uid") or d.id
+        name = data.get("name") or "EMPLOYEE"
+
+        shift = _get_assigned_shift_for_employee(uid)
+
+        out.append({
+            "uid": uid,
+            "name": name,
+            "role": "EMPLOYEE",
+            "shift": shift,
+        })
+    return out

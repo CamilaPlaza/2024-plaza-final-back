@@ -1,7 +1,8 @@
+from typing import Any, Dict, List
 from fastapi import APIRouter, Depends
 from app.models.user import UserRegisterInput, UserRegister, UserForgotPassword
 from app.controller.user_controller import (
-    check_level_controller, get_top_level_status_controller, level_controller,
+    check_level_controller, employees_with_shift_controller, get_top_level_status_controller, level_controller,
     register, handle_forgot_password, ranking_controller,
     get_user_by_id, delete_user_by_id, reset_monthly_points_controller, rewards_controller
 )
@@ -55,4 +56,11 @@ async def reset_monthly_points(user_data=Depends(verify_token)):
 async def level(level_id: str, user_data=Depends(verify_token)):
     return level_controller(level_id)
 
+@router.get("/employees-with-shift")
+def employees_with_shift(user_data=Depends(verify_token)) -> Dict[str, Any]:
+    role = (user_data or {}).get("role")
+    if role != "ADMIN":
+        raise HTTPException(status_code=403, detail="Admin role required")
 
+    employees = employees_with_shift_controller()
+    return {"employees": employees}

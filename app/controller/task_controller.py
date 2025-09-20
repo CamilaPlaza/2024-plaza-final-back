@@ -14,7 +14,7 @@ ALLOWED_STATUSES = {"PENDING", "IN_PROGRESS", "COMPLETED"}
 
 def _is_admin(user_data: dict) -> bool:
     role = str(user_data.get("role", "")).strip().lower()
-    return role in {"admin", "administrator"}
+    return role in {"admin", "administrator", "ADMIN"}
 
 def _uid(user_data: dict) -> str:
     return str(user_data.get("uid") or user_data.get("user_id") or "")
