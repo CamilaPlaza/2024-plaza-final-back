@@ -3,6 +3,10 @@ from app.db.firebase import db
 from app.models.user import UserRegister, UserRegisterInput, UserRole
 from firebase_admin import auth
 
+USERS_COL = db.collection("users")
+ASSIGN_COL = db.collection("shift_assignments")
+SHIFTS_COL = db.collection("shifts")
+
 def create_user(user_data: UserRegister | UserRegisterInput):
     try:
         role = getattr(user_data, "role", UserRole.EMPLOYEE)
@@ -197,52 +201,60 @@ def reset_monthly_points():
 
     return f"Monthly points reset for {updated_users_count} users."
 
-def _get_assigned_shift_for_employee(uid: str) -> Optional[Dict[str, Any]]:
-
+def _get_assigned_shift_id_for_employee(uid: str) -> Optional[str]:
     try:
-        q = (
-            db.collection("shift_assignments")
-              .where("id_employee", "==", uid)
-              .limit(1)
-              .get()
-        )
-        if not q:
-            return None
-
-        sa = q[0].to_dict() or {}
-        shift_id = sa.get("id_shift")
-        if not shift_id:
-            return None
-
-        shift_doc = db.collection("shifts").document(shift_id).get()
-        if not shift_doc.exists:
-            return {"id": shift_id, "name": None, "start_time": None, "end_time": None}
-
-        s = shift_doc.to_dict() or {}
-        return {
-            "id": shift_id,
-            "name": s.get("name"),
-            "start_time": s.get("start_time"),
-            "end_time": s.get("end_time"),
-        }
+        qs = ASSIGN_COL.where("id_employee", "==", uid).limit(1).get()
+        print("qs")
+        print(qs)
+        if qs:
+            data = qs[0].to_dict() or {}
+            sid = data.get("id_shift")
+            return str(sid) if sid else None
     except Exception:
-        return None
+        pass
+    return None
+    
+def _get_shift_by_id(shift_id: str) -> Optional[Dict[str, Any]]:
+    try:
+        doc = SHIFTS_COL.document(str(shift_id)).get()
+        if doc.exists:
+            s = doc.to_dict() or {}
+            return {
+                "id": str(doc.id),
+                "name": s.get("name"),
+                "start_time": s.get("start_time"),
+                "end_time": s.get("end_time"),
+            }
+    except Exception:
+        pass
+    return None
+
+def _normalize_role(v: Any) -> str:
+    return str(v or "").strip().upper()
 
 def list_employees_with_shift_service() -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
-    
-    docs = db.collection("users").where("role", "==", "EMPLOYEE").stream()
-    for d in docs:
-        data = d.to_dict() or {}
-        uid = data.get("uid") or d.id
-        name = data.get("name") or "EMPLOYEE"
+    try:
+        for snap in USERS_COL.stream():
+            data = snap.to_dict() or {}
+            role = _normalize_role(data.get("role"))
+            if role == "ADMIN":
+                continue
+            uid = str(snap.id)
+            name = data.get("name") or uid
 
-        shift = _get_assigned_shift_for_employee(uid)
+            shift_obj = None
+            sid = _get_assigned_shift_id_for_employee(uid)
+            print("sid")
+            print(sid)
+            if sid:
+                shift_obj = _get_shift_by_id(sid)
 
-        out.append({
-            "uid": uid,
-            "name": name,
-            "role": "EMPLOYEE",
-            "shift": shift,
-        })
+            out.append({
+                "uid": uid,
+                "name": name,
+                "shift": shift_obj,
+            })
+    except Exception:
+        pass
     return out
