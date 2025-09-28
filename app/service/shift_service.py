@@ -10,6 +10,19 @@ def create_shift(shift_data):
     except Exception as e:
         return {"error": str(e)}
 
+def find_shift_id_by_name(shift_name: str) -> str:
+    try:
+        q = db.collection("shifts").where("name", "==", shift_name).limit(1).stream()
+        doc = next(q, None)
+        if not doc:
+            raise HTTPException(status_code=404, detail=f"Shift '{shift_name}' not found")
+        data = doc.to_dict() or {}
+        return data.get("id") or doc.id   # usa el campo 'id' si existe; si no, el doc.id
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
 def assign_employee_to_shift(data):
     try:
         new_ref = db.collection("shift_assignments").document()

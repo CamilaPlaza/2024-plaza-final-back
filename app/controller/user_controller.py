@@ -4,6 +4,8 @@ from app.models.user import TokenData, UserLogin, UserRegister, UserForgotPasswo
 from firebase_admin import auth
 from fastapi import HTTPException
 
+from app.service.shift_service import assign_employee_to_shift, find_shift_id_by_name
+
 def login(user: UserLogin):
     try:
         user = auth.get_user_by_email(user.email)
@@ -27,14 +29,31 @@ def register(user: UserRegister, token_claims: dict):
     token_uid = token_claims.get("uid")
     if not token_uid:
         raise HTTPException(status_code=401, detail="Invalid token")
-
     if user.uid != token_uid:
         raise HTTPException(status_code=403, detail="Forbidden")
 
+    # 1) Crear usuario
     resp = create_user(user)
     if "error" in resp:
         raise HTTPException(status_code=400, detail=resp["error"])
-    return {"message": "User registered successfully"}
+
+    # 2) Resolver ID de turno por nombre (sin duplicar nada en user_service)
+    id_shift = find_shift_id_by_name(user.shift_name.value)
+
+    # 3) Reusar TU lógica de asignación (nada de router, directo al service)
+    assign_payload = {
+        "id_employee": user.uid,
+        "id_shift": id_shift,
+        "tasks": []  # o el campo que uses ('tasks' / 'shift_assignments'); debe matchear tu modelo
+    }
+    assign_result = assign_employee_to_shift(assign_payload)
+
+    return {
+        "message": "User registered successfully and shift assigned",
+        "uid": user.uid,
+        "role": resp.get("role"),
+        "shift_assignment": assign_result
+    }
 
 def handle_forgot_password(user: UserForgotPassword):
     db_user = get_user_by_email(user.email)
