@@ -33,14 +33,15 @@ def _round2(x: float) -> float:
     return round(x + 1e-9, 2)
 
 # --------------------------------------------
-
 def register_new_order(order: Order):
 
-    if order.status not in ("INACTIVE",):
-        raise HTTPException(status_code=400, detail="status must be 'INACTIVE' on creation")
+    if order.status not in ("INACTIVE", "IN PROGRESS"):
+        raise HTTPException(status_code=400, detail="status must be 'INACTIVE' or 'IN PROGRESS' on creation")
 
-    if order.tableNumber != 0:
-        raise HTTPException(status_code=400, detail="tableNumber must be 0 when status is INACTIVE")
+    if order.status == "IN PROGRESS":
+        if order.tableNumber <= 0:
+            raise HTTPException(status_code=400, detail="tableNumber must be > 0 when status is IN PROGRESS")
+
 
     _validate_date(order.date)
     _validate_time(order.time)
@@ -57,6 +58,7 @@ def register_new_order(order: Order):
 
         if raw_item.product_name != prod.get("name"):
             raise HTTPException(status_code=400, detail=f"Product name for product ID {raw_item.product_id} does not match")
+
         db_price_str = str(prod.get("price"))
         if raw_item.product_price != db_price_str:
             raise HTTPException(status_code=400, detail=f"Product price for product ID {raw_item.product_id} does not match")
@@ -81,13 +83,14 @@ def register_new_order(order: Order):
         raise HTTPException(status_code=500, detail=resp["error"])
     return resp
 
+
 def finalize_order_controller(order_id: str):
     order = get_order_by_id(order_id)
+    print(order)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     if order.get("status") != "IN PROGRESS":
         raise HTTPException(status_code=409, detail="Order is not in progress")
-
     return finalize_order(order_id)
 
 def get_order_controller(order_id: str):

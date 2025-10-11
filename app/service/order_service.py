@@ -25,53 +25,58 @@ def create_order(order_data):
         }
     except Exception as e:
         return {"error": str(e)}
+    
+def _to_int_safe(v):
+    if v is None:
+        return 0
+    if isinstance(v, (int, float)):
+        return int(v)
+    if isinstance(v, str):
+        s = v.strip()
+        if s.isdigit():
+            return int(s)
+        try:
+            return int(float(s.replace(",", ".")))
+        except:
+            return 0
+    return 0
 
 def finalize_order(order_id: str):
-    """
-    Finalizes an order and updates the employee's points.
-    """
     try:
-        # Get the order by its ID
         order_ref = db.collection('orders').document(order_id)
-        order = order_ref.get()
-
-        if not order.exists:
+        snap = order_ref.get()
+        if not snap.exists:
             raise HTTPException(status_code=404, detail="Order not found")
 
-        # Extract employee UID from the order
-        employee_uid = order.to_dict().get("employee")
+        order = snap.to_dict() or {}
+        employee_uid = (order.get("employee") or "").strip()
         if not employee_uid:
             raise HTTPException(status_code=400, detail="Employee UID missing in order")
 
-        # Update the order status to finalized
         order_ref.update({"status": "FINALIZED"})
 
-        # Fetch the user's current points
         user_ref = db.collection("users").document(employee_uid)
-        user_data = user_ref.get()
-
-        if not user_data.exists:
+        user_snap = user_ref.get()
+        if not user_snap.exists:
             raise HTTPException(status_code=404, detail="User not found")
 
-        # Get current points and convert to int, default to 0 if missing
-        user_dict = user_data.to_dict()
-        current_global_points = int(user_dict.get("globalPoints", "0"))
-        current_monthly_points = int(user_dict.get("monthlyPoints", "0"))
+        user = user_snap.to_dict() or {}
+        current_global_points = _to_int_safe(user.get("globalPoints"))
+        current_monthly_points = _to_int_safe(user.get("monthlyPoints"))
 
-        # Increment points and convert back to string
-        updated_global_points = str(current_global_points + 1)
-        updated_monthly_points = str(current_monthly_points + 1)
-
-        # Update the user's points as strings
         user_ref.update({
-            "globalPoints": updated_global_points,
-            "monthlyPoints": updated_monthly_points
+            "globalPoints": str(current_global_points + 1),
+            "monthlyPoints": str(current_monthly_points + 1)
         })
 
         return {"message": "Order finalized successfully, points updated"}
+    except HTTPException as e:
+        print(e)
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+        print(e)
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+    
 def get_order_by_id(order_id: str):
     try:
         order_ref = db.collection('orders').document(order_id)

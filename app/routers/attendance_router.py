@@ -1,15 +1,23 @@
-from typing import Optional
+# app/router/attendance_router.py
+from typing import Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from app.controller.attendance_controller import (
     get_today_attendance_controller,
     register_attendance_check_in,
     register_attendance_check_out,
     get_open_attendance_controller,
     get_checkin_preview_controller,
+    apply_tip_controller,
 )
 from app.dependencies import verify_token
 
 router = APIRouter(prefix="/attendance", tags=["Attendance"])
+
+class ApplyTipIn(BaseModel):
+    order_id: str
+    mode: Literal["percent", "absolute"]
+    value: float
 
 @router.post("/checkin")
 def check_in(
@@ -38,3 +46,6 @@ def checkin_preview(employee_id: str, shift_id: str, user_data=Depends(verify_to
 def today(employee_id: str, user_data=Depends(verify_token)):
     return get_today_attendance_controller(employee_id)
 
+@router.post("/tips/apply")
+def apply_tip(payload: ApplyTipIn, user_data=Depends(verify_token)):
+    return apply_tip_controller(payload.order_id, payload.mode, payload.value)
