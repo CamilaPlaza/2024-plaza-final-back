@@ -4,6 +4,7 @@ from app.db.firebase import db
 from app.service.table_service import get_table_by_id
 from app.models.order_item import OrderItem
 from fastapi import HTTPException
+from google.cloud.firestore_v1 import FieldFilter
 
 def create_order(order_data):
     try:
@@ -226,18 +227,19 @@ def get_months_revenue_service():
 
 def get_average_per_person_service(year: str, month: str) -> Dict[str, float]:
     try:
-        _, num_days = monthrange(int(year), int(month))
+        m = f"{int(month):02d}"
+        _, num_days = monthrange(int(year), int(m))
 
-        average_per_person = {f"{year}-{int(month):02d}-{day:02d}": 0 for day in range(1, num_days + 1)}
+        average_per_person = {f"{year}-{m}-{day:02d}": 0 for day in range(1, num_days + 1)}
 
-        # Query orders within the specified month
-        orders = db.collection('orders') \
-                   .where('date', '>=', f"{year}-{month}-01") \
-                   .where('date', '<=', f"{year}-{month}-{num_days}") \
-                   .stream()
+        orders = (
+            db.collection('orders')
+              .where(filter=FieldFilter('date', '>=', f"{year}-{m}-01"))
+              .where(filter=FieldFilter('date', '<=', f"{year}-{m}-{num_days:02d}"))
+              .stream()
+        )
 
-        # Dictionary to accumulate the sum of averages per day
-        daily_totals = {f"{year}-{int(month):02d}-{day:02d}": [] for day in range(1, num_days + 1)}
+        daily_totals = {f"{year}-{m}-{day:02d}": [] for day in range(1, num_days + 1)}
 
         for order in orders:
             order_data = order.to_dict()
@@ -245,21 +247,17 @@ def get_average_per_person_service(year: str, month: str) -> Dict[str, float]:
             total = order_data.get('total')
             amount_of_people = order_data.get('amountOfPeople')
 
-            # Ensure that total is converted to float
             try:
                 total = float(total)
-            except ValueError:
-                raise HTTPException(status_code=400, detail=f"Invalid total value: {total}")
+            except (TypeError, ValueError):
+                continue
 
-            # Ensure amount_of_people is valid
-            if amount_of_people > 0:
+            if amount_of_people and amount_of_people > 0 and date in daily_totals:
                 average = total / amount_of_people
-                if date in daily_totals:
-                    daily_totals[date].append(average)
+                daily_totals[date].append(average)
 
-        # Calculate the sum of averages for each day
         for day, averages in daily_totals.items():
-            if averages:  # Only sum if there are averages for that day
+            if averages:
                 average_per_person[day] = sum(averages)
 
         return average_per_person
@@ -267,39 +265,38 @@ def get_average_per_person_service(year: str, month: str) -> Dict[str, float]:
         raise HTTPException(status_code=500, detail=f"Error retrieving orders: {str(e)}")
 
 def get_average_per_order_service(year: str, month: str) -> Dict[str, float]:
-    # i need to get the average per order so, sum all the orders totals and divide by the amount of orders
     try:
-        _, num_days = monthrange(int(year), int(month))
+        m = f"{int(month):02d}"
+        _, num_days = monthrange(int(year), int(m))
 
-        average_per_order = {f"{year}-{int(month):02d}-{day:02d}": 0 for day in range(1, num_days + 1)}
+        average_per_order = {f"{year}-{m}-{day:02d}": 0 for day in range(1, num_days + 1)}
 
-        # Query orders within the specified month
-        orders = db.collection('orders') \
-                   .where('date', '>=', f"{year}-{month}-01") \
-                   .where('date', '<=', f"{year}-{month}-{num_days}") \
-                   .stream()
+        # ✅ NUEVO: usar FieldFilter en lugar de argumentos posicionales
+        orders = (
+            db.collection('orders')
+              .where(filter=FieldFilter('date', '>=', f"{year}-{m}-01"))
+              .where(filter=FieldFilter('date', '<=', f"{year}-{m}-{num_days:02d}"))
+              .stream()
+        )
 
-        # Dictionary to accumulate the sum of averages per day
-        daily_totals = {f"{year}-{int(month):02d}-{day:02d}": [] for day in range(1, num_days + 1)}
+        daily_totals = {f"{year}-{m}-{day:02d}": [] for day in range(1, num_days + 1)}
 
         for order in orders:
             order_data = order.to_dict()
             date = order_data.get('date')
             total = order_data.get('total')
 
-            # Ensure that total is converted to float
             try:
                 total = float(total)
-            except ValueError:
-                raise HTTPException(status_code=400, detail=f"Invalid total value: {total}")
+            except (TypeError, ValueError):
+                continue
 
-            daily_totals[date].append(total)
+            if date in daily_totals:
+                daily_totals[date].append(total)
 
-        # Calculate the sum of averages for each day
         for day, totals in daily_totals.items():
-            if totals:  # Only sum if there are totals for that day
-                average = sum(totals) / len(totals)
-                average_per_order[day] = average
+            if totals:
+                average_per_order[day] = sum(totals) / len(totals)
 
         return average_per_order
     except Exception as e:

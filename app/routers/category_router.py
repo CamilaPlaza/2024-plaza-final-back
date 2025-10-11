@@ -14,6 +14,10 @@ router = APIRouter(prefix="/categories", tags=["Categories"])
 async def categories():
     return get_all_categories()
 
+@router.get("/revenue")
+async def get_category_revenue(user_data=Depends(verify_token)):
+    return get_category_revenue_controller()
+
 @router.post("/register")
 async def register_category(category: Category, user_data=Depends(verify_token)):
     return register_new_category(category)
@@ -29,10 +33,6 @@ async def delete_category(category_id: str, user_data=Depends(verify_token)):
 @router.put("/updateNameByID/{category_id}/{new_name}")
 async def update_category_name(category_id: str, new_name: str, user_data=Depends(verify_token)):
     return update_category_name_controller(category_id, new_name)
-
-@router.get("/revenue")
-async def get_category_revenue(user_data=Depends(verify_token)):
-    return get_category_revenue_controller()
 
 @router.get("/getProductsByCategoryID/{category_id}")
 async def get_products_by_category(category_id: str, user_data=Depends(verify_token)):
