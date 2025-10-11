@@ -3,6 +3,7 @@ from typing import Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from app.controller.attendance_controller import (
+    get_current_tips_total_controller,
     get_today_attendance_controller,
     register_attendance_check_in,
     register_attendance_check_out,
@@ -49,3 +50,7 @@ def today(employee_id: str, user_data=Depends(verify_token)):
 @router.post("/tips/apply")
 def apply_tip(payload: ApplyTipIn, user_data=Depends(verify_token)):
     return apply_tip_controller(payload.order_id, payload.mode, payload.value)
+
+@router.get("/tips/total")
+def get_current_tips_total(user_data = Depends(verify_token)):
+    return get_current_tips_total_controller(user_data)

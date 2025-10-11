@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import HTTPException
 from app.service.attendance_service import (
     create_attendance_record,
+    get_current_tips_total_service,
     get_today_attendance_data,
     has_any_attendance_today,
     update_attendance_checkout,
@@ -43,3 +44,11 @@ def get_today_attendance_controller(employee_id: str):
 
 def apply_tip_controller(order_id: str, mode: str, value: float):
     return apply_tip_for_order(order_id, mode, value)
+
+
+def get_current_tips_total_controller(user_data: dict):
+    uid = (user_data.get("uid") or user_data.get("user_id") or user_data.get("sub") or "").strip()
+    if not uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    return get_current_tips_total_service(uid)

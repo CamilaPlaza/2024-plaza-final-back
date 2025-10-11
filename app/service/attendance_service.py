@@ -231,3 +231,42 @@ def apply_tip_for_order(order_id: str, mode: str, value: float):
         "value": valf,
         "attendance_id": att_id,
     }
+
+def _to_float(v, default=0.0) -> float:
+    try:
+        return float(v)
+    except Exception:
+        return default
+
+def get_current_tips_total_service(uid: str) -> dict:
+    opened = find_open_attendance_for_today(uid)
+    if not opened or not isinstance(opened, dict) or "id" not in opened:
+        return {
+            "open": False,
+            "attendance_id": None,
+            "tips_total_ars": 0.0,
+            "tipped_orders": []
+        }
+
+    att_id = opened["id"]
+    doc = db.collection("attendance").document(att_id).get()
+    if not doc.exists:
+        return {
+            "open": False,
+            "attendance_id": None,
+            "tips_total_ars": 0.0,
+            "tipped_orders": []
+        }
+
+    att = doc.to_dict() or {}
+    tips_total = _to_float(att.get("tips_total_ars", 0.0), 0.0)
+    tipped_orders = att.get("tipped_orders") or []
+    if not isinstance(tipped_orders, list):
+        tipped_orders = []
+
+    return {
+        "open": True,
+        "attendance_id": att_id,
+        "tips_total_ars": round(tips_total, 2),
+        "tipped_orders": tipped_orders
+    }
