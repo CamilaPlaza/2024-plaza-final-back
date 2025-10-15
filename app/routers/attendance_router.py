@@ -20,36 +20,67 @@ class ApplyTipIn(BaseModel):
     mode: Literal["percent", "absolute"]
     value: float
 
+def _uid_from(user_data: dict) -> str:
+    return (user_data.get("uid") or user_data.get("user_id") or user_data.get("sub") or "").strip()
+
+def _roles_from(user_data: dict):
+    roles = user_data.get("roles") or user_data.get("role") or []
+    if isinstance(roles, str):
+        roles = [roles]
+    return [str(r) for r in roles]
+
 @router.post("/checkin")
 def check_in(
-    employee_id: str,
-    shift_id: str,
+    employee_id: Optional[str] = None,
+    shift_id: str = "",
     observations: Optional[str] = None,
     user_data=Depends(verify_token)
 ):
-    return register_attendance_check_in(employee_id, shift_id, observations)
+    uid = _uid_from(user_data)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if not shift_id:
+        raise HTTPException(status_code=400, detail="Missing shift_id")
+    return register_attendance_check_in(uid, shift_id, observations)
 
 @router.put("/checkout/{attendance_id}")
 def check_out(attendance_id: str, user_data=Depends(verify_token)):
-    return register_attendance_check_out(attendance_id)
+    uid = _uid_from(user_data)
+    roles = _roles_from(user_data)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return register_attendance_check_out(attendance_id, uid, roles)
 
 @router.get("/open-attendance")
-def get_open_attendance(employee_id: str, user_data=Depends(verify_token)):
-    return get_open_attendance_controller(employee_id)
+def get_open_attendance(employee_id: Optional[str] = None, user_data=Depends(verify_token)):
+    uid = _uid_from(user_data)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return get_open_attendance_controller(uid)
 
 @router.get("/checkin-preview")
-def checkin_preview(employee_id: str, shift_id: str, user_data=Depends(verify_token)):
-    if not employee_id or not shift_id:
+def checkin_preview(employee_id: Optional[str] = None, shift_id: Optional[str] = None, user_data=Depends(verify_token)):
+    uid = _uid_from(user_data)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if not shift_id:
         raise HTTPException(status_code=400, detail="Missing required data")
-    return get_checkin_preview_controller(employee_id, shift_id)
+    return get_checkin_preview_controller(uid, shift_id)
 
 @router.get("/today")
-def today(employee_id: str, user_data=Depends(verify_token)):
-    return get_today_attendance_controller(employee_id)
+def today(employee_id: Optional[str] = None, user_data=Depends(verify_token)):
+    uid = _uid_from(user_data)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return get_today_attendance_controller(uid)
 
 @router.post("/tips/apply")
 def apply_tip(payload: ApplyTipIn, user_data=Depends(verify_token)):
-    return apply_tip_controller(payload.order_id, payload.mode, payload.value)
+    uid = _uid_from(user_data)
+    roles = _roles_from(user_data)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return apply_tip_controller(payload.order_id, payload.mode, payload.value, uid, roles)
 
 @router.get("/tips/total")
 def get_current_tips_total(user_data = Depends(verify_token)):

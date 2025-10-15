@@ -47,13 +47,26 @@ def create_attendance_record(employee_id, shift_id, observations=None):
     except Exception as e:
         return {"message": "Check-in registrado", "id": None, "error": str(e)}
 
-def update_attendance_checkout(attendance_id):
+def _get_attendance_doc(attendance_id):
+    doc_ref = db.collection("attendance").document(attendance_id)
+    doc = doc_ref.get()
+    return doc_ref, doc
+
+def update_attendance_checkout_secure(attendance_id: str, actor_uid: str, actor_roles: list[str]):
     try:
-        doc_ref = db.collection("attendance").document(attendance_id)
-        doc = doc_ref.get()
+        doc_ref, doc = _get_attendance_doc(attendance_id)
         if not doc.exists:
             return {"error": "Attendance record not found"}
-        data = doc.to_dict()
+        data = doc.to_dict() or {}
+        owner_uid = (data.get("id_employee") or "").strip()
+        is_admin = "admin" in (actor_roles or [])
+
+        if not is_admin and owner_uid != actor_uid:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        if data.get("check_out_time"):
+            return {"message": "Check-out ya registrado", "id": attendance_id}
+
         check_in_time = datetime.fromisoformat(data["check_in_time"])
         check_out_time = datetime.now()
         total = (check_out_time - check_in_time).total_seconds() / 3600
@@ -63,6 +76,8 @@ def update_attendance_checkout(attendance_id):
             "updated_at": iso_now(),
         })
         return {"message": "Check-out registrado", "id": attendance_id}
+    except HTTPException:
+        raise
     except Exception as e:
         return {"error": str(e)}
 
@@ -153,7 +168,13 @@ def _get_order(order_id: str) -> dict | None:
     d["id"] = snap.id
     return d
 
-def apply_tip_for_order(order_id: str, mode: str, value: float):
+def get_order_employee(order_id: str) -> str | None:
+    order = _get_order(order_id)
+    if not order:
+        return None
+    return (order.get("employee") or "").strip() or None
+
+def apply_tip_for_order_secure(order_id: str, mode: str, value: float, actor_uid: str, actor_roles: list[str]):
     if not order_id or not isinstance(order_id, str):
         raise HTTPException(status_code=400, detail="Invalid order_id")
     if mode not in ("percent", "absolute"):
@@ -167,18 +188,18 @@ def apply_tip_for_order(order_id: str, mode: str, value: float):
         raise HTTPException(status_code=400, detail="Value must be greater than 0")
 
     order = _get_order(order_id)
-    print(order)
     if not order:
         raise HTTPException(status_code=404, detail="ORDER_NOT_FOUND")
     if order.get("status") != "FINALIZED":
         raise HTTPException(status_code=409, detail="ORDER_NOT_FINALIZED")
 
-    # 👇 clave: dict access, no atributo
+    # ownership: el pedido debe pertenecer al actor (o ser admin)
     employee_id = (order.get("employee") or "").strip()
-    print("a ver dios el emplyee esteee")
-    print(employee_id)
     if not employee_id:
         raise HTTPException(status_code=403, detail="ORDER_WITHOUT_EMPLOYEE")
+    is_admin = "admin" in (actor_roles or [])
+    if not is_admin and employee_id != actor_uid:
+        raise HTTPException(status_code=403, detail="FORBIDDEN_TIP_ON_OTHERS_ORDER")
 
     try:
         base_total = float(order.get("total"))
@@ -192,7 +213,6 @@ def apply_tip_for_order(order_id: str, mode: str, value: float):
     else:
         amount = _round2(valf)
 
-    # 👇 idem: usar employee_id
     opened = find_open_attendance_for_today(employee_id)
     if not opened or not isinstance(opened, dict) or "id" not in opened:
         raise HTTPException(status_code=409, detail="NO_OPEN_ATTENDANCE")

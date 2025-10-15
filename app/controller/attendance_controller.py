@@ -1,15 +1,16 @@
 # app/controller/attendance_controller.py
-from typing import Optional
+from typing import Optional, List
 from fastapi import HTTPException
 from app.service.attendance_service import (
     create_attendance_record,
     get_current_tips_total_service,
     get_today_attendance_data,
     has_any_attendance_today,
-    update_attendance_checkout,
+    update_attendance_checkout_secure,
     find_open_attendance_for_today,
     make_checkin_preview,
-    apply_tip_for_order,
+    apply_tip_for_order_secure,
+    get_order_employee,  # nuevo helper expuesto desde service
 )
 
 def register_attendance_check_in(employee_id: str, shift_id: str, observations: Optional[str] = None):
@@ -23,10 +24,11 @@ def register_attendance_check_in(employee_id: str, shift_id: str, observations: 
     created = create_attendance_record(employee_id, shift_id, observations)
     return {"created": True, "id": created["id"]}
 
-def register_attendance_check_out(attendance_id: str):
+def register_attendance_check_out(attendance_id: str, actor_uid: str, actor_roles: List[str]):
     if not attendance_id.strip():
         raise HTTPException(status_code=400, detail="Missing attendance ID")
-    return update_attendance_checkout(attendance_id)
+    # valida ownership (o admin) en service
+    return update_attendance_checkout_secure(attendance_id, actor_uid, actor_roles)
 
 def get_open_attendance_controller(employee_id: str):
     found = find_open_attendance_for_today(employee_id)
@@ -42,9 +44,15 @@ def get_today_attendance_controller(employee_id: str):
     data = get_today_attendance_data(employee_id)
     return data or {}
 
-def apply_tip_controller(order_id: str, mode: str, value: float):
-    return apply_tip_for_order(order_id, mode, value)
+def apply_tip_controller(order_id: str, mode: str, value: float, actor_uid: str, actor_roles: List[str]):
+    target_emp = get_order_employee(order_id)
+    if not target_emp:
+        raise HTTPException(status_code=404, detail="ORDER_NOT_FOUND")
+    is_admin = "admin" in (actor_roles or [])
+    if not is_admin and target_emp != actor_uid:
+        raise HTTPException(status_code=403, detail="FORBIDDEN_TIP_ON_OTHERS_ORDER")
 
+    return apply_tip_for_order_secure(order_id, mode, value, actor_uid, actor_roles)
 
 def get_current_tips_total_controller(user_data: dict):
     uid = (user_data.get("uid") or user_data.get("user_id") or user_data.get("sub") or "").strip()
