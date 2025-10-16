@@ -15,7 +15,7 @@ async def register_product(product: Product, user_data=Depends(verify_token)):
     return register_new_product(product)
 
 @router.get("/getAll")
-async def products():
+async def products(user_data=Depends(verify_token)):
     return get_products()
 
 @router.get("/{product_id}")
@@ -45,7 +45,6 @@ async def update_stock(product_id: str, stock: str, user_data=Depends(verify_tok
 @router.put("/lowerStockByID/{product_id}/{stock}")
 async def lower_stock(product_id: str, stock: str, user_data=Depends(verify_token)):
     return lower_stock_controller(product_id, stock)
-
 
 @router.get("/check-in-progress")
 async def check_product_in_orders(user_data=Depends(verify_token)):
