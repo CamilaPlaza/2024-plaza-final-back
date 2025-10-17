@@ -1,5 +1,6 @@
 from datetime import datetime
 from app.db.firebase import db
+from fastapi import HTTPException
 
 def create_shift(shift_data):
     try:
@@ -17,12 +18,12 @@ def find_shift_id_by_name(shift_name: str) -> str:
         if not doc:
             raise HTTPException(status_code=404, detail=f"Shift '{shift_name}' not found")
         data = doc.to_dict() or {}
-        return data.get("id") or doc.id   # usa el campo 'id' si existe; si no, el doc.id
+        return data.get("id") or doc.id
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
+
 def assign_employee_to_shift(data):
     try:
         new_ref = db.collection("shift_assignments").document()
@@ -39,9 +40,8 @@ def get_employees_by_shift(shift_id):
     except Exception as e:
         return {"error": str(e)}
 
-def get_current_shift_id(): #Shift actual del día, el momento
+def get_current_shift_id():
     now = datetime.now().time()
-
     docs = db.collection("shifts").stream()
     for doc in docs:
         data = doc.to_dict() or {}
@@ -49,52 +49,41 @@ def get_current_shift_id(): #Shift actual del día, el momento
         end_str   = data.get("end_time")
         if not start_str or not end_str:
             continue
-
         start = datetime.strptime(start_str, "%H:%M").time()
         end   = datetime.strptime(end_str,   "%H:%M").time()
-
         if start <= end:
             in_range = start <= now < end
         else:
             in_range = (now >= start) or (now < end)
-
         if in_range:
             return data.get("id") or doc.id
-
     return None
 
-
 def get_assigned_shift_for_employee(employee_id: str):
-
     try:
         if not employee_id:
             return {"error": "Missing employee_id"}
-
-        q = (db.collection("shift_assignments")
-               .where("id_employee", "==", employee_id)
-               .limit(1)
-               .stream())
-
+        q = (
+            db.collection("shift_assignments")
+              .where("id_employee", "==", employee_id)
+              .limit(1)
+              .stream()
+        )
         assignment_doc = None
         for doc in q:
             assignment_doc = doc
             break
-
         if not assignment_doc:
             return None
-
         assignment = assignment_doc.to_dict() or {}
         shift_id = assignment.get("id_shift")
         if not shift_id:
             return {"error": "Assignment without id_shift"}
-        
         shift_snap = db.collection("shifts").document(shift_id).get()
         if not shift_snap.exists:
             return {"error": "Shift not found"}
-
         shift = shift_snap.to_dict() or {}
         shift["id"] = shift_snap.id
         return shift
-
     except Exception as e:
         return {"error": str(e)}
