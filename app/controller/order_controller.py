@@ -11,6 +11,7 @@ from app.models.order import Order, OrderItem
 from app.service.product_service import product_by_id
 from app.controller.table_controller import associate_order_with_table_controller
 from app.service.user_service import user_by_id as fetch_user_by_id
+from app.service.attendance_service import find_open_attendance_for_today
 
 def _parse_float(value: str, field_name: str) -> float:
     try:
@@ -29,7 +30,13 @@ def _validate_time(time_str: str):
 def _round2(x: float) -> float:
     return round(x + 1e-9, 2)
 
+def _require_checkin(actor_uid: str):
+    opened = find_open_attendance_for_today(actor_uid)
+    if not opened:
+        raise HTTPException(status_code=403, detail="CHECKIN_REQUIRED")
+
 def register_new_order_controller(order: Order, actor_uid: str, actor_roles: list[str]):
+    _require_checkin(actor_uid)
     is_admin = "admin" in (actor_roles or [])
     incoming_emp = (order.employee or "").strip()
     if not is_admin and incoming_emp and incoming_emp != actor_uid:
@@ -74,6 +81,7 @@ def register_new_order_controller(order: Order, actor_uid: str, actor_roles: lis
     return resp
 
 def finalize_order_controller(order_id: str, actor_uid: str, actor_roles: list[str]):
+    _require_checkin(actor_uid)
     order = get_order_by_id(order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -91,11 +99,13 @@ def get_orders_controller(actor_uid: str, actor_roles: list[str]):
     return get_all_orders()
 
 def add_order_items_controller(order_id: str, new_order_items_data: List[dict], total: str, actor_uid: str, actor_roles: list[str]):
+    _require_checkin(actor_uid)
     if not isinstance(new_order_items_data, list) or not new_order_items_data:
         raise HTTPException(status_code=400, detail="new_order_items must be a non-empty list")
     return add_items_to_order_secure(order_id, new_order_items_data, total, actor_uid, actor_roles)
 
 def delete_order_items_controller(order_id: str, order_items: List[str], actor_uid: str, actor_roles: list[str]):
+    _require_checkin(actor_uid)
     if not isinstance(order_items, list) or not order_items:
         raise HTTPException(status_code=400, detail="order_items must be a non-empty list of product_id")
     return delete_order_items_secure(order_id, order_items, actor_uid, actor_roles)
@@ -128,12 +138,14 @@ def get_average_per_order_controller(year: str, month: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 def assign_order_to_table_controller(order_id: str, table_id: int, actor_uid: str, actor_roles: list[str]):
+    _require_checkin(actor_uid)
     resp = assign_order_to_table_service_secure(order_id, table_id, actor_uid, actor_roles)
     resp2 = associate_order_with_table_controller(str(table_id), order_id)
     resp["table"] = resp2
     return resp
 
 def assign_employee_to_order_controller(order_id: str, target_uid: str, actor_uid: str, actor_roles: list[str]):
+    _require_checkin(actor_uid)
     if not target_uid or not isinstance(target_uid, str):
         raise HTTPException(status_code=400, detail="Employee UID is required")
     return assign_employee_to_order_secure(order_id, target_uid.strip(), actor_uid, actor_roles)

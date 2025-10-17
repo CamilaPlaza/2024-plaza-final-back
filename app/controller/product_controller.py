@@ -80,9 +80,14 @@ def update_product_categories(product_id: str, newcategories: str):
     newcategories = (newcategories or "").strip()
     if not newcategories:
         raise HTTPException(status_code=400, detail="Category cannot be empty")
-    if not check_multiple_categories_exist(newcategories):
-        raise HTTPException(status_code=400, detail="Category does not exist")
-
+    check = check_multiple_categories_exist(newcategories)
+    if isinstance(check, bool):
+        if not check:
+            raise HTTPException(status_code=400, detail="Category does not exist")
+    else:
+        if not check.get("ok", False):
+            missing = ", ".join(check.get("missing", [])) or "unknown"
+            raise HTTPException(status_code=400, detail=f"Category does not exist: {missing}")
     resp = update_product_newcategories(product_id, newcategories)
     if "error" in resp:
         msg = resp["error"]
@@ -90,6 +95,7 @@ def update_product_categories(product_id: str, newcategories: str):
             raise HTTPException(status_code=404, detail=msg)
         raise HTTPException(status_code=500, detail=msg)
     return resp
+
 
 def delete_product_by_id(product_id: str):
     try:
