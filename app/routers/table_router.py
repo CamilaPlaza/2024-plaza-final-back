@@ -19,16 +19,16 @@ async def get_table(table_id: str, user_data=Depends(verify_token)):
 
 @router.put("/order/{table_id}")
 async def associate_order_with_table(table_id: str, order_id: int, user_data=Depends(verify_token)):
-    return associate_order_with_table_controller(table_id, order_id)
+    return associate_order_with_table_controller(table_id, order_id, user_data)
 
 @router.put("/close/{table_id}")
 async def close_table(table_id: str, body: Dict[str, Union[str, int]], user_data=Depends(verify_token)):
-    return close_table_controller(table_id, body)
+    return close_table_controller(table_id, body, user_data)
 
 @router.put("/clean/{table_id}")
 async def clean_table(table_id: str, body: Dict[str, Union[str, int]], user_data=Depends(verify_token)):
-    return clean_table_controller(table_id, body)
+    return clean_table_controller(table_id, body, user_data)
 
 # @router.post("/create")
 # async def create_table(body: Dict[str, Union[str, int]], user_data=Depends(verify_token)):
-#    return create_table_controller(body)
+#     return create_table_controller(body, user_data)
