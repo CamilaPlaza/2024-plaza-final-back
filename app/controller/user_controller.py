@@ -3,51 +3,37 @@ from app.service.user_service import check_level, create_user, get_top_level_sta
 from app.models.user import TokenData, UserLogin, UserRegister, UserForgotPassword
 from firebase_admin import auth
 from fastapi import HTTPException
-
 from app.service.shift_service import assign_employee_to_shift, find_shift_id_by_name
 
 def login(user: UserLogin):
     try:
-        user = auth.get_user_by_email(user.email)
-        return {"message": "Usuario autenticado exitosamente", "user_id": user.uid}
-    except firebase_admin.auth.AuthError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        u = auth.get_user_by_email(user.email)
+        return {"message": "Usuario autenticado exitosamente", "user_id": u.uid}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 def token(token_data: TokenData):
     try:
         decoded_token = auth.verify_id_token(token_data.id_token)
-        uid = decoded_token['uid']
+        uid = decoded_token.get("uid") or decoded_token.get("sub")
+        if not uid:
+            raise HTTPException(status_code=400, detail="Token inválido: uid ausente")
         return {"message": "Token verificado", "user_id": uid}
-    except firebase_admin.auth.AuthError as e:
-        raise HTTPException(status_code=400, detail="Token no válido o expirado")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail="Token no válido o expirado")
 
 def register(user: UserRegister, token_claims: dict):
-    token_uid = token_claims.get("uid")
+    token_uid = token_claims.get("uid") or token_claims.get("user_id") or token_claims.get("sub")
     if not token_uid:
         raise HTTPException(status_code=401, detail="Invalid token")
     if user.uid != token_uid:
         raise HTTPException(status_code=403, detail="Forbidden")
-
-    # 1) Crear usuario
     resp = create_user(user)
     if "error" in resp:
         raise HTTPException(status_code=400, detail=resp["error"])
-
-    # 2) Resolver ID de turno por nombre (sin duplicar nada en user_service)
     id_shift = find_shift_id_by_name(user.shift_name.value)
-
-    # 3) Reusar TU lógica de asignación (nada de router, directo al service)
-    assign_payload = {
-        "id_employee": user.uid,
-        "id_shift": id_shift,
-        "tasks": []  # o el campo que uses ('tasks' / 'shift_assignments'); debe matchear tu modelo
-    }
+    assign_payload = {"id_employee": user.uid, "id_shift": id_shift, "tasks": []}
     assign_result = assign_employee_to_shift(assign_payload)
-
     return {
         "message": "User registered successfully and shift assigned",
         "uid": user.uid,
@@ -75,14 +61,14 @@ def delete_user_by_id(uid: str):
     return {"message": "User deleted successfully"}
 
 def ranking_controller():
-    try: 
+    try:
         response = ranking()
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 def rewards_controller(level_id: str):
-    try: 
+    try:
         response = rewards(level_id)
         return response
     except Exception as e:
