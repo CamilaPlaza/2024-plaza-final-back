@@ -23,3 +23,29 @@ github-*.zip
 
 candv-final-plaza-firebase-adminsdk-fbsvc-f9042b2dde.json
 
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+pip-wheel-metadata/
+.env
+.venv/
+venv/
+ENV/
+.python-version
+
+# Tests
+.pytest_cache/
+
+# IDEs
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
