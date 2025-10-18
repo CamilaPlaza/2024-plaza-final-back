@@ -1,7 +1,5 @@
-from typing import Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-# Modelo para registrar un nuevo producto
 class Table(BaseModel):
     status: str
     capacity: int

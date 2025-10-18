@@ -1,6 +1,5 @@
 from pydantic import BaseModel, Field
 
-# Modelo para registrar un nuevo producto
 class Category(BaseModel):
-    name: str
-    type: str
+    name: str = Field(..., min_length=1, max_length=80)
+    type: str = "Custom"

@@ -11,4 +11,7 @@ Metacello new
    githubUser: 'uca-argentina' project: 'project-template' commitish: 'master' path: 'repository';
    load: 'development'.
 ```
+python -m venv venv
+.\venv\Scripts\activate
+
 Lo corro con: fastapi dev main.py

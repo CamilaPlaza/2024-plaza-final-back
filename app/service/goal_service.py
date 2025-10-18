@@ -1,143 +1,174 @@
-from calendar import monthrange
-from datetime import datetime
-from typing import Dict, List
-from app.db.firebase import db
-from app.models.goal import Goal
-from fastapi import HTTPException
 from collections import defaultdict
 from datetime import datetime, timedelta
+from typing import Dict, List, Any, Optional
+
+from fastapi import HTTPException
 from google.cloud import firestore
-from app.service.category_service import get_categories
+from google.cloud.firestore_v1 import FieldFilter
+
+from app.db.firebase import db
+from app.models.goal import Goal
 from app.service.product_service import products
 
-def create_goal(goal):
-    try:
-        # Obtener el siguiente ID disponible
-        next_id = get_next_goal_id()
 
-        # Convertir los datos del goal a un formato compatible
+def create_goal(goal: Goal):
+    try:
+        next_id = get_next_goal_id()
         goal_data = goal.dict(by_alias=True, exclude_unset=True)
 
-        # Si la fecha ya es una cadena, no se hace nada
-
-        # Handle category_id gracefully (make sure it's None or a valid string)
-        if goal_data.get('categoryId') is None:
+        # Normalizar categoryId a None o str
+        category_id = goal_data.get('categoryId')
+        if category_id is None:
             goal_data['categoryId'] = None
-        elif not isinstance(goal_data.get('categoryId'), str):
-            raise Exception("category_id must be a string or None")
+        elif not isinstance(category_id, str):
+            raise Exception("categoryId must be a string or None")
 
-        # Guardar el objetivo en Firestore
-        new_goal_ref = db.collection('goals').document(str(next_id))
-        new_goal_ref.set(goal_data)
-
+        # Guardar
+        db.collection('goals').document(str(next_id)).set(goal_data)
         return next_id
     except Exception as e:
-        return {"error": str(e)}
-        
-def get_next_goal_id():
-    """
-    Obtiene el próximo ID disponible en la colección 'products'.
-    """
+        # En create podemos devolver mensaje 500 controlado
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def get_next_goal_id() -> int:
     try:
-        # Obtener todos los documentos de la colección 'products'
         goals = db.collection('goals').stream()
-
-        # Extraer los IDs existentes y convertirlos a enteros
-        existing_ids = [int(goal.id) for goal in goals if goal.id.isdigit()]
-
-        if existing_ids:
-            # Encontrar el mayor ID existente y sumar 1
-            next_id = max(existing_ids) + 1
-        else:
-            # Si no hay IDs, comenzamos desde 1
-            next_id = 1
-
-        return next_id
+        existing = [int(doc.id) for doc in goals if doc.id.isdigit()]
+        return max(existing) + 1 if existing else 1
     except Exception as e:
-        raise Exception(f"Error retrieving next ID from existing goals: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving next ID from existing goals: {str(e)}")
 
 
-def get_category_product_mapping():
+def get_category_product_mapping() -> Dict[str, str]:
+    """
+    Mapea category_id -> 'productId1,productId2,...'
+    """
     try:
-        # Fetch products
-        products_response = products()  # Assuming this fetches the products from Firestore
+        products_response = products()  # debe devolver {"products": [...]}
         products_list = products_response.get("products", [])
 
-        # Create a dictionary to hold category IDs as keys and a set of product IDs as values
         category_to_products = defaultdict(set)
+        for prod in products_list:
+            product_id = prod.get('id')
+            categories_str = prod.get('category', '') or ''
+            for cat in categories_str.split(','):
+                cat = cat.strip()
+                if cat and product_id:
+                    category_to_products[cat].add(product_id)
 
-        # Iterate through each product to associate it with categories
-        for product in products_list:
-            product_id = product.get('id')  # The product ID is stored under 'id'
-            category_ids = product.get('category', '').split(',')  # Split categories string by comma
-            
-            for category_id in category_ids:
-                category_id = category_id.strip()  # Remove any leading/trailing whitespace
-                category_to_products[category_id].add(product_id)
-
-        # Convert sets to comma-separated strings
-        category_to_products = {category_id: ','.join(sorted(product_ids)) for category_id, product_ids in category_to_products.items()}
-        return category_to_products
-
+        # sets -> string
+        return {k: ','.join(sorted(v)) for k, v in category_to_products.items()}
     except Exception as e:
-        return {"error": str(e)}
+        # Si esto falla, levantamos error para que el front lo reciba como 500
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-def goals(monthYear):
+def _parse_order_date(value: Any) -> Optional[datetime]:
+    """
+    Convierte el campo 'date' de la orden a datetime.
+    Soporta:
+      - firestore.Timestamp
+      - string 'YYYY-MM-DD' (o variantes comunes)
+    Devuelve None si no puede parsear.
+    """
+    if value is None:
+        return None
+
+    # Firestore Timestamp
+    if hasattr(value, "to_datetime"):
+        try:
+            return value.to_datetime()
+        except Exception:
+            pass
+
+    # String
+    if isinstance(value, str):
+        # Intentos más comunes
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y"):
+            try:
+                return datetime.strptime(value[:10], fmt)  # cortar posible tiempo
+            except Exception:
+                continue
+
+    return None
+
+
+def goals(monthYear: str) -> List[dict]:
+    """
+    Devuelve las metas del mes 'MM/YY' con el campo actualIncome calculado.
+    Evita índices compuestos: consulta FINALIZED y filtra rango por fecha en Python.
+    """
     try:
-        # Parsear monthYear en fechas de inicio y fin
+        # Calcular rango de mes
         start_date = datetime.strptime(monthYear, "%m/%y")
-        end_date = start_date.replace(day=28) + timedelta(days=4)  # Mover al próximo mes
-        end_date = end_date - timedelta(days=end_date.day)  # Ajustar al último día del mes
+        end_date = (start_date.replace(day=28) + timedelta(days=4))  # próximo mes
+        end_date = end_date.replace(day=1) - timedelta(days=1)       # último día del mes (23:59:59 concepto)
+        end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
 
-        # Consultar la colección 'goals' para el mes y año especificados
-        goals_ref = db.collection('goals').where('date', '==', monthYear).stream()
-        goals = []
-        category_products = get_category_product_mapping()  # Mapear categorías a productos
+        # Traer goals del mes
+        goals_q = db.collection('goals').where(filter=FieldFilter('date', '==', monthYear)).stream()
 
-        for goal in goals_ref:
-            gol = goal.to_dict()
-            gol['id'] = goal.id  # Incluir el ID del goal
-            
-            # Inicializar el seguimiento del ingreso
-            actual_income = 0
-            category_id = gol.get('categoryId')
+        category_products = get_category_product_mapping()
+        out: List[dict] = []
 
-            # Consultar pedidos finalizados dentro del rango de fechas
-            orders_ref = db.collection('orders')
-            orders_ref = orders_ref \
-                .where("status", "==", "FINALIZED") \
-                .where("date", ">=", start_date.strftime("%Y-%m-%d")) \
-                .where("date", "<=", end_date.strftime("%Y-%m-%d")) \
-                .stream()
+        # Traer órdenes FINALIZED (sin rango de fecha → NO necesita índice compuesto)
+        orders_iter = db.collection('orders').where(
+            filter=FieldFilter('status', '==', 'FINALIZED')
+        ).stream()
 
-            if category_id is None:
-                # Sumar todos los totales de pedidos cuando no hay filtro de categoría
-                for order in orders_ref:
-                    order_data = order.to_dict()
-                    actual_income += float(order_data.get('total', 0))
-            else:
-                # Filtrar ingresos basado en la categoría-producto
-                for order in orders_ref:
-                    order_data = order.to_dict()
-                    for item in order_data.get('orderItems', []):
-                        product_id = item.get('product_id')
-                        if product_id:
-                            # Verificar si el producto pertenece a la categoría de la meta
-                            associated_categories = category_products.get(str(category_id), "").split(',')
-                            if str(product_id) in associated_categories:
-                                # Calcular ingresos multiplicando cantidad y precio
-                                product_price = item.get('product_price', 0)
-                                amount = item.get('amount', 0)
-                                actual_income += amount * float(product_price)
-
-            gol['actualIncome'] = actual_income  # Actualizar la meta con el ingreso real
-            db.collection('goals').document(goal.id).update({
-                'actualIncome': actual_income
+        # Para no re-streamear por cada goal, materializamos una lista liviana con lo necesario
+        orders_cache = []
+        for order_doc in orders_iter:
+            od = order_doc.to_dict()
+            orders_cache.append({
+                "total": float(od.get('total', 0) or 0),
+                "date": od.get('date'),
+                "items": od.get('orderItems', [])
             })
-            goals.append(gol)
 
-        return goals
+        for goal_doc in goals_q:
+            g = goal_doc.to_dict()
+            g['id'] = goal_doc.id
 
+            actual_income = 0.0
+            category_id = g.get('categoryId')  # None o str
+            associated_products = []
+            if category_id:
+                associated_products = (category_products.get(str(category_id), "") or "").split(',')
+                associated_products = [p.strip() for p in associated_products if p.strip()]
+
+            # Filtrar por fecha en Python y acumular income
+            for od in orders_cache:
+                order_dt = _parse_order_date(od["date"])
+                if not order_dt:
+                    continue
+                if not (start_date <= order_dt <= end_date):
+                    continue
+
+                if not category_id:
+                    # Meta general: sumar el total de la orden
+                    actual_income += od["total"]
+                else:
+                    # Meta por categoría: sumar por items que pertenezcan a esa categoría
+                    for item in od["items"] or []:
+                        prod_id = str(item.get('product_id')) if item.get('product_id') is not None else None
+                        if prod_id and prod_id in associated_products:
+                            amount = float(item.get('amount', 0) or 0)
+                            price = float(item.get('product_price', 0) or 0.0)
+                            actual_income += amount * price
+
+            g['actualIncome'] = round(actual_income, 2)
+
+            # Persistimos el cálculo
+            db.collection('goals').document(goal_doc.id).update({'actualIncome': g['actualIncome']})
+
+            out.append(g)
+
+        return out
+
+    except HTTPException:
+        raise
     except Exception as e:
-        return {"error": str(e)}
+        # Muy importante: levantamos HTTPException para que el front lo trate como error
+        raise HTTPException(status_code=500, detail=str(e))

@@ -1,161 +1,114 @@
+import re
 from typing import List
-from app.service.order_service import assign_employee_to_order, assign_order_to_table_service, create_order, delete_order_items, finalize_order, get_months_revenue_service, get_order_by_id, get_all_orders, add_items_to_order, get_average_per_person_service, get_average_per_order_service
-from app.models.order import Order
-from app.models.order import OrderItem
-from app.controller.table_controller import associate_order_with_table_controller
 from fastapi import HTTPException
+from app.service.order_service import (
+    assign_employee_to_order_secure, assign_order_to_table_service_secure, create_order,
+    delete_order_items_secure, finalize_order_secure, get_average_per_order_service,
+    get_average_per_person_service, get_months_revenue_service, get_order_by_id,
+    get_all_orders, add_items_to_order_secure
+)
+from app.models.order import Order, OrderItem
 from app.service.product_service import product_by_id
-from app.service.table_service import get_table_by_id, update_table_status
+from app.controller.table_controller import associate_order_with_table_controller
+from app.service.user_service import user_by_id as fetch_user_by_id
+from app.service.attendance_service import find_open_attendance_for_today
 
-def register_new_order(order: Order):
-    order_data = order.dict()
+def _parse_float(value: str, field_name: str) -> float:
+    try:
+        return float(value)
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be a number")
 
-    # Validar que la mesa esté incluida en la orden
-    '''table_id = order_data.get('tableNumber')
-    if not table_id:
-        raise HTTPException(status_code=400, detail="Table ID is required")
+def _validate_date(date_str: str):
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_str or ""):
+        raise HTTPException(status_code=400, detail="date must be in 'YYYY-MM-DD' format")
 
-    # Verificar si la mesa existe utilizando get_table_by_id directamente
-    table = get_table_by_id(str(table_id))  # Asegúrate de que sea string si es necesario
-    if not table:
-        raise HTTPException(status_code=404, detail=f"Table with ID {table_id} not found")'''
+def _validate_time(time_str: str):
+    if not re.fullmatch(r"\d{2}:\d{2}", time_str or ""):
+        raise HTTPException(status_code=400, detail="time must be in 'HH:mm' format")
 
-    # Obtener datos de los productos desde la orden
-    order_items = order_data.get('orderItems', [])
-    if not order_items:
+def _round2(x: float) -> float:
+    return round(x + 1e-9, 2)
+
+def _require_checkin(actor_uid: str):
+    opened = find_open_attendance_for_today(actor_uid)
+    if not opened:
+        raise HTTPException(status_code=403, detail="CHECKIN_REQUIRED")
+
+def register_new_order_controller(order: Order, actor_uid: str, actor_roles: list[str]):
+    _require_checkin(actor_uid)
+    is_admin = "admin" in (actor_roles or [])
+    incoming_emp = (order.employee or "").strip()
+    if not is_admin and incoming_emp and incoming_emp != actor_uid:
+        raise HTTPException(status_code=403, detail="Non-admin can only create orders for themselves")
+    target_uid = incoming_emp or actor_uid if is_admin or not incoming_emp else actor_uid
+    if order.status not in ("INACTIVE", "IN PROGRESS"):
+        raise HTTPException(status_code=400, detail="status must be 'INACTIVE' or 'IN PROGRESS' on creation")
+    if order.status == "IN PROGRESS":
+        if order.tableNumber <= 0:
+            raise HTTPException(status_code=400, detail="tableNumber must be > 0 when status is IN PROGRESS")
+    _validate_date(order.date)
+    _validate_time(order.time)
+    if not order.orderItems:
         raise HTTPException(status_code=400, detail="At least one order item is required")
+    computed_total = 0.0
+    for raw_item in order.orderItems:
+        prod_res = product_by_id(raw_item.product_id)
+        if not isinstance(prod_res, dict) or "product" not in prod_res:
+            raise HTTPException(status_code=404, detail=f"Product with ID {raw_item.product_id} not found")
+        prod = prod_res["product"]
+        if raw_item.product_name != prod.get("name"):
+            raise HTTPException(status_code=400, detail=f"Product name for product ID {raw_item.product_id} does not match")
+        db_price_str = str(prod.get("price"))
+        if raw_item.product_price != db_price_str:
+            raise HTTPException(status_code=400, detail=f"Product price for product ID {raw_item.product_id} does not match")
+        item_price = _parse_float(raw_item.product_price, "product_price")
+        computed_total += item_price * raw_item.amount
+    declared_total = _parse_float(order.total, "total")
+    if _round2(declared_total) != _round2(computed_total):
+        raise HTTPException(status_code=400, detail="total does not match orderItems sum")
+    if target_uid:
+        employee_doc = fetch_user_by_id(target_uid)
+        if isinstance(employee_doc, dict) and "error" in employee_doc:
+            if employee_doc["error"] == "User not found":
+                raise HTTPException(status_code=404, detail="Employee not found")
+            raise HTTPException(status_code=500, detail=employee_doc["error"])
+    data = order.dict()
+    data["employee"] = target_uid
+    resp = create_order(data)
+    if isinstance(resp, dict) and "error" in resp:
+        raise HTTPException(status_code=500, detail=resp["error"])
+    return resp
 
-    # verificar que el amountOfPeople sea mayor a cero pero menor a la capacity de una table
-    #amountOfPeople = order_data.get('amountOfPeople')
-    #verificar que amountOfPeople sea mayor a 0 y menor a la capacidad de una mesa
-    '''if amountOfPeople <= 0 or amountOfPeople > table.get('capacity'):
-        raise HTTPException(status_code=400, detail="Amount of people must be greater than 0 and less than or equal to the table capacity")'''
+def finalize_order_controller(order_id: str, actor_uid: str, actor_roles: list[str]):
+    _require_checkin(actor_uid)
+    order = get_order_by_id(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("status") != "IN PROGRESS":
+        raise HTTPException(status_code=409, detail="Order is not in progress")
+    return finalize_order_secure(order_id, actor_uid, actor_roles)
 
-    for item in order_items:
-        # Obtener product_id del item
-        product_id = item.get('product_id')
-        if not product_id:
-            raise HTTPException(status_code=400, detail="Product ID is required in the order item")
-
-        # Verificar si el producto existe en la base de datos
-        product_data = product_by_id(product_id)
-        
-        # Debugging: Print product to see its structure
-        print(f"Fetched product from database: {product_data}")
-
-        # Access the nested product fields
-        product = product_data.get('product', {})
-        if not product:
-            raise HTTPException(status_code=404, detail=f"Product with ID {product_id} not found")
-
-        # Validar que el nombre y precio coincidan con los de la base de datos
-        product_name = item.get('product_name')
-        product_price = item.get('product_price')
-
-        # Comparar con los valores de la base de datos
-        if product_name != product.get('name'):
-            raise HTTPException(status_code=400, detail=f"Product name for product ID {product_id} does not match")
-
-        if product_price != str(product.get('price')): 
-            raise HTTPException(status_code=400, detail=f"Product price for product ID {product_id} does not match")
-
-    # Validaciones completas, proceder a crear la orden
-    response = create_order(order_data)
-    if "error" in response:
-        raise HTTPException(status_code=500, detail=response["error"])
-    # quiero llamar a associate_order_with_table para asociar la orden con la mesa
-    '''response_table = associate_order_with_table_controller(str(table_id), str(response["order_id"]))
-    if "error" in response_table:
-        raise HTTPException(status_code=500, detail=response_table["error"])
-    #quiero retornar response_table y response juntos
-    response["table"] = response_table'''
+def get_order_controller(order_id: str, actor_uid: str, actor_roles: list[str]):
+    response = get_order_by_id(order_id)
+    if not response:
+        raise HTTPException(status_code=404, detail="Order not found")
     return response
 
-def finalize_order_controller(order_id: str):
-    """
-    Endpoint to finalize an order by ID.
-    """
-    try:
-        # Call the service to finalize the order
-        response = finalize_order(order_id)
-        return response
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+def get_orders_controller(actor_uid: str, actor_roles: list[str]):
+    return get_all_orders()
 
-def get_order_controller(order_id: str):
-    try:
-        response = get_order_by_id(order_id)
-        if not response:
-            raise HTTPException(status_code=404, detail="Order not found")
-        return response
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+def add_order_items_controller(order_id: str, new_order_items_data: List[dict], total: str, actor_uid: str, actor_roles: list[str]):
+    _require_checkin(actor_uid)
+    if not isinstance(new_order_items_data, list) or not new_order_items_data:
+        raise HTTPException(status_code=400, detail="new_order_items must be a non-empty list")
+    return add_items_to_order_secure(order_id, new_order_items_data, total, actor_uid, actor_roles)
 
-def get_orders():
-    try:
-        response = get_all_orders()
-        return response
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-def add_order_items(order_id: str, new_order_items_data: List[dict], total: str):
-    try:
-        # Fetch the existing order
-        existing_order = get_order_by_id(order_id)
-        if not existing_order:
-            raise HTTPException(status_code=404, detail="Order not found")
-
-        # Check if the order status is 'IN PROGRESS'
-        if existing_order.get("status") != "IN PROGRESS":
-            raise HTTPException(status_code=400, detail="Cannot add items to an order that is not in progress")
-
-        # Convertir los datos de la solicitud en instancias de OrderItem
-        new_order_items = [OrderItem(**item) for item in new_order_items_data]
-
-        # Validar que cada product_id exista en la tabla de productos
-        for item in new_order_items:
-            product_id = item.product_id
-            product = product_by_id(product_id)  # Fetch product details by product_id
-            if "error" in product:
-                raise HTTPException(status_code=404, detail=f"Product with ID {product_id} not found")
-
-        # Actualizar la orden con los nuevos ítems (que ya incluyen viejos y nuevos)
-        response = add_items_to_order(order_id, new_order_items, total)
-        return response
-    
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-def delete_order_items_controller(order_id: str, order_items: List[str]):
-    try:
-        # Fetch the existing order
-        existing_order = get_order_by_id(order_id)
-        if not existing_order:
-            raise HTTPException(status_code=404, detail="Order not found")
-
-        # Check if the order status is 'IN PROGRESS'
-        if existing_order.get("status") != "INACTIVE":
-            raise HTTPException(status_code=400, detail="Cannot DELETE items to an order that is not in progress")
-
-        # Convertir los datos de la solicitud en instancias de OrderItem
-
-        # Actualizar la orden con los nuevos ítems (que ya incluyen viejos y nuevos)
-        response = delete_order_items(order_id, order_items)
-        return response
-    
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+def delete_order_items_controller(order_id: str, order_items: List[str], actor_uid: str, actor_roles: list[str]):
+    _require_checkin(actor_uid)
+    if not isinstance(order_items, list) or not order_items:
+        raise HTTPException(status_code=400, detail="order_items must be a non-empty list of product_id")
+    return delete_order_items_secure(order_id, order_items, actor_uid, actor_roles)
 
 def get_months_revenue():
     try:
@@ -184,22 +137,15 @@ def get_average_per_order_controller(year: str, month: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def assign_order_to_table_controller(order_id: str, table_id: int):
-    try:
-        response = assign_order_to_table_service(order_id, table_id)
-        response2 = associate_order_with_table_controller(str(table_id), order_id)
-        response["table"] = response2
-        return response
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+def assign_order_to_table_controller(order_id: str, table_id: int, actor_uid: str, actor_roles: list[str]):
+    _require_checkin(actor_uid)
+    resp = assign_order_to_table_service_secure(order_id, table_id, actor_uid, actor_roles)
+    resp2 = associate_order_with_table_controller(str(table_id), order_id)
+    resp["table"] = resp2
+    return resp
 
-def assign_employee_to_order_controller(order_id, uid):
-    try:
-        response = assign_employee_to_order(str(order_id), uid)
-        return response
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+def assign_employee_to_order_controller(order_id: str, target_uid: str, actor_uid: str, actor_roles: list[str]):
+    _require_checkin(actor_uid)
+    if not target_uid or not isinstance(target_uid, str):
+        raise HTTPException(status_code=400, detail="Employee UID is required")
+    return assign_employee_to_order_secure(order_id, target_uid.strip(), actor_uid, actor_roles)
