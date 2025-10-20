@@ -24,18 +24,17 @@ def _roles_from(user_data: dict):
 
 @router.post("/register")
 async def register_order(order: Order, request: Request):
-    # Pública: NO validar token si la orden es INACTIVE
     status = (order.status or "").strip().upper()
     if status == "INACTIVE":
         return register_new_order_public_controller(order)
 
-    # Privada: validar token sólo si corresponde
     auth = (request.headers.get("authorization") or "").strip()
     low = auth.lower()
     if not auth or low in ("bearer", "bearer null", "bearer undefined"):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    user_data = await verify_token(authorization=auth)
+    user_data = verify_token(authorization=auth)
+
     uid = _uid_from(user_data)
     roles = _roles_from(user_data)
     if not uid:
