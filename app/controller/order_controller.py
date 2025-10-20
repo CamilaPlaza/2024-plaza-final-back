@@ -24,8 +24,23 @@ def _validate_date(date_str: str):
         raise HTTPException(status_code=400, detail="date must be in 'YYYY-MM-DD' format")
 
 def _validate_time(time_str: str):
-    if not re.fullmatch(r"\d{2}:\d{2}", time_str or ""):
+    """
+    Acepta HH:mm o HH:mm:ss (24h). Rechaza otros formatos.
+    """
+    if not re.fullmatch(r"\d{2}:\d{2}(:\d{2})?", time_str or ""):
         raise HTTPException(status_code=400, detail="time must be in 'HH:mm' format")
+
+def _normalize_time_to_HH_mm(time_str: str) -> str:
+    """
+    Normaliza 'HH:mm' o 'HH:mm:ss' a 'HH:mm'.
+    """
+    if not time_str:
+        raise HTTPException(status_code=400, detail="time must be in 'HH:mm' format")
+    if re.fullmatch(r"\d{2}:\d{2}:\d{2}", time_str):
+        return time_str[:5]
+    if re.fullmatch(r"\d{2}:\d{2}", time_str):
+        return time_str
+    raise HTTPException(status_code=400, detail="time must be in 'HH:mm' format")
 
 def _round2(x: float) -> float:
     return round(x + 1e-9, 2)
@@ -42,15 +57,20 @@ def register_new_order_controller(order: Order, actor_uid: str, actor_roles: lis
     if not is_admin and incoming_emp and incoming_emp != actor_uid:
         raise HTTPException(status_code=403, detail="Non-admin can only create orders for themselves")
     target_uid = incoming_emp or actor_uid if is_admin or not incoming_emp else actor_uid
+
     if order.status not in ("INACTIVE", "IN PROGRESS"):
         raise HTTPException(status_code=400, detail="status must be 'INACTIVE' or 'IN PROGRESS' on creation")
     if order.status == "IN PROGRESS":
         if order.tableNumber <= 0:
             raise HTTPException(status_code=400, detail="tableNumber must be > 0 when status is IN PROGRESS")
+
     _validate_date(order.date)
     _validate_time(order.time)
+    norm_time = _normalize_time_to_HH_mm(order.time)
+
     if not order.orderItems:
         raise HTTPException(status_code=400, detail="At least one order item is required")
+
     computed_total = 0.0
     for raw_item in order.orderItems:
         prod_res = product_by_id(raw_item.product_id)
@@ -64,17 +84,22 @@ def register_new_order_controller(order: Order, actor_uid: str, actor_roles: lis
             raise HTTPException(status_code=400, detail=f"Product price for product ID {raw_item.product_id} does not match")
         item_price = _parse_float(raw_item.product_price, "product_price")
         computed_total += item_price * raw_item.amount
+
     declared_total = _parse_float(order.total, "total")
     if _round2(declared_total) != _round2(computed_total):
         raise HTTPException(status_code=400, detail="total does not match orderItems sum")
+
     if target_uid:
         employee_doc = fetch_user_by_id(target_uid)
         if isinstance(employee_doc, dict) and "error" in employee_doc:
             if employee_doc["error"] == "User not found":
                 raise HTTPException(status_code=404, detail="Employee not found")
             raise HTTPException(status_code=500, detail=employee_doc["error"])
+
     data = order.dict()
     data["employee"] = target_uid
+    data["time"] = norm_time  # ← guardamos HH:mm normalizado
+
     resp = create_order(data)
     if isinstance(resp, dict) and "error" in resp:
         raise HTTPException(status_code=500, detail=resp["error"])
@@ -91,6 +116,7 @@ def register_new_order_public_controller(order: Order):
 
     _validate_date(order.date)
     _validate_time(order.time)
+    norm_time = _normalize_time_to_HH_mm(order.time)
 
     if not order.orderItems:
         raise HTTPException(status_code=400, detail="At least one order item is required")
@@ -118,6 +144,7 @@ def register_new_order_public_controller(order: Order):
     data["status"] = "INACTIVE"
     data["employee"] = ""
     data["tableNumber"] = 0
+    data["time"] = norm_time  # ← guardamos HH:mm normalizado
 
     resp = create_order(data)
     if isinstance(resp, dict) and "error" in resp:
