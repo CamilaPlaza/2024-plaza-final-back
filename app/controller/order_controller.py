@@ -80,6 +80,50 @@ def register_new_order_controller(order: Order, actor_uid: str, actor_roles: lis
         raise HTTPException(status_code=500, detail=resp["error"])
     return resp
 
+def register_new_order_public_controller(order: Order):
+    if order.status != "INACTIVE":
+        raise HTTPException(status_code=400, detail="Public order must have status INACTIVE")
+
+    if (order.tableNumber or 0) != 0:
+        raise HTTPException(status_code=400, detail="tableNumber must be 0 for public orders")
+    if (order.employee or "").strip():
+        raise HTTPException(status_code=400, detail="employee must be empty for public orders")
+
+    _validate_date(order.date)
+    _validate_time(order.time)
+
+    if not order.orderItems:
+        raise HTTPException(status_code=400, detail="At least one order item is required")
+
+    computed_total = 0.0
+    for raw_item in order.orderItems:
+        prod_res = product_by_id(raw_item.product_id)
+        if not isinstance(prod_res, dict) or "product" not in prod_res:
+            raise HTTPException(status_code=404, detail=f"Product with ID {raw_item.product_id} not found")
+        prod = prod_res["product"]
+        if raw_item.product_name != prod.get("name"):
+            raise HTTPException(status_code=400, detail=f"Product name for product ID {raw_item.product_id} does not match")
+        db_price_str = str(prod.get("price"))
+        if raw_item.product_price != db_price_str:
+            raise HTTPException(status_code=400, detail=f"Product price for product ID {raw_item.product_id} does not match")
+
+        item_price = _parse_float(raw_item.product_price, "product_price")
+        computed_total += item_price * raw_item.amount
+
+    declared_total = _parse_float(order.total, "total")
+    if _round2(declared_total) != _round2(computed_total):
+        raise HTTPException(status_code=400, detail="total does not match orderItems sum")
+
+    data = order.dict()
+    data["status"] = "INACTIVE"
+    data["employee"] = ""
+    data["tableNumber"] = 0
+
+    resp = create_order(data)
+    if isinstance(resp, dict) and "error" in resp:
+        raise HTTPException(status_code=500, detail=resp["error"])
+    return resp
+
 def finalize_order_controller(order_id: str, actor_uid: str, actor_roles: list[str]):
     _require_checkin(actor_uid)
     order = get_order_by_id(order_id)
