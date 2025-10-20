@@ -274,29 +274,29 @@ def get_average_per_order_service(year: str, month: str) -> Dict[str, float]:
 
 def assign_order_to_table_service_secure(order_id: str, table_id: int, actor_uid: str, actor_roles: list[str]):
     try:
-        # Validaciones rápidas fuera de la tx (lecturas no-atomicas, solo para filtrar)
+        # Validaciones rápidas fuera de la transacción
         order = get_order_by_id(order_id)
         if not order:
             raise HTTPException(status_code=404, detail="Order not found")
         if order.get("status") != "INACTIVE":
             raise HTTPException(status_code=400, detail="Order status is not INACTIVE")
 
-        if not get_table_by_id(table_id):
-            raise HTTPException(status_code=404, detail="Table not found")
         table = get_table_by_id(str(table_id))
+        if not table:
+            raise HTTPException(status_code=404, detail="Table not found")
         if table.get("status") != "FREE":
             raise HTTPException(status_code=400, detail="Table status is not FREE")
 
-        # Refs
         order_ref = db.collection('orders').document(order_id)
         table_ref = db.collection('tables').document(str(table_id))
 
-        # Transacción para actualizar ambos docs de forma atómica
+        # Transacción: usar .get(transaction=tx) (NO tx.get(...))
         tx = db.transaction()
 
-        # Releer dentro de la transacción y validar nuevamente (estado consistente)
-        ord_snap = tx.get(order_ref)
-        tbl_snap = tx.get(table_ref)
+        # Releer dentro de la transacción y validar nuevamente
+        ord_snap = order_ref.get(transaction=tx)
+        tbl_snap = table_ref.get(transaction=tx)
+
         if not ord_snap.exists:
             raise HTTPException(status_code=404, detail="Order not found")
         if not tbl_snap.exists:
@@ -320,7 +320,6 @@ def assign_order_to_table_service_secure(order_id: str, table_id: int, actor_uid
             "order_id": int(order_id)
         })
 
-        # Confirmar
         tx.commit()
 
         return {"message": "Order assigned to table successfully"}
