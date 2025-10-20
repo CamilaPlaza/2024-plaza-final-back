@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, HTTPException, Header
+from fastapi import APIRouter, Depends, Query, HTTPException, Header, Request
 from typing import Any, Dict, List, Optional
 from app.models.order import Order
 from app.dependencies import verify_token
@@ -21,21 +21,21 @@ def _roles_from(user_data: dict):
         roles = [roles]
     return [str(r) for r in roles]
 
-async def optional_verify_token(authorization: Optional[str] = Header(None)):
-    if not authorization:
-        return None
-    return await verify_token(authorization=authorization)
-
 @router.post("/register")
-async def register_order(order: Order, user_data=Depends(optional_verify_token)):
-    if order.status == "INACTIVE":
+async def register_order(order: Order, request: Request):
+    if (order.status or "").upper() == "INACTIVE":
         return register_new_order_public_controller(order)
-    if not user_data:
+
+    auth = (request.headers.get("authorization") or "").strip()
+    if not auth or auth.lower() in ("bearer", "bearer null", "bearer undefined"):
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_data = await verify_token(authorization=auth)
     uid = _uid_from(user_data)
     roles = _roles_from(user_data)
     if not uid:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
     return register_new_order_controller(order, uid, roles)
 
 @router.put("/order-items/{order_id}")
