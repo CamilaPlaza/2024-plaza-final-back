@@ -274,26 +274,61 @@ def get_average_per_order_service(year: str, month: str) -> Dict[str, float]:
 
 def assign_order_to_table_service_secure(order_id: str, table_id: int, actor_uid: str, actor_roles: list[str]):
     try:
+        # Validaciones rápidas fuera de la tx (lecturas no-atomicas, solo para filtrar)
         order = get_order_by_id(order_id)
         if not order:
             raise HTTPException(status_code=404, detail="Order not found")
         if order.get("status") != "INACTIVE":
             raise HTTPException(status_code=400, detail="Order status is not INACTIVE")
+
         if not get_table_by_id(table_id):
             raise HTTPException(status_code=404, detail="Table not found")
         table = get_table_by_id(str(table_id))
         if table.get("status") != "FREE":
             raise HTTPException(status_code=400, detail="Table status is not FREE")
+
+        # Refs
         order_ref = db.collection('orders').document(order_id)
-        order_ref.update({
+        table_ref = db.collection('tables').document(str(table_id))
+
+        # Transacción para actualizar ambos docs de forma atómica
+        tx = db.transaction()
+
+        # Releer dentro de la transacción y validar nuevamente (estado consistente)
+        ord_snap = tx.get(order_ref)
+        tbl_snap = tx.get(table_ref)
+        if not ord_snap.exists:
+            raise HTTPException(status_code=404, detail="Order not found")
+        if not tbl_snap.exists:
+            raise HTTPException(status_code=404, detail="Table not found")
+
+        ord_data = ord_snap.to_dict() or {}
+        tbl_data = tbl_snap.to_dict() or {}
+
+        if ord_data.get("status") != "INACTIVE":
+            raise HTTPException(status_code=400, detail="Order status is not INACTIVE")
+        if tbl_data.get("status") != "FREE":
+            raise HTTPException(status_code=400, detail="Table status is not FREE")
+
+        # Updates atómicos
+        tx.update(order_ref, {
             "status": "IN PROGRESS",
-            "tableNumber": table_id
+            "tableNumber": int(table_id)
         })
+        tx.update(table_ref, {
+            "status": "BUSY",
+            "order_id": int(order_id)
+        })
+
+        # Confirmar
+        tx.commit()
+
         return {"message": "Order assigned to table successfully"}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 def assign_employee_to_order_secure(order_id: str, target_uid: str, actor_uid: str, actor_roles: list[str]):
     order_ref = db.collection("orders").document(order_id)
@@ -305,7 +340,7 @@ def assign_employee_to_order_secure(order_id: str, target_uid: str, actor_uid: s
     if not _is_admin(actor_roles):
         if target_uid != actor_uid:
             raise HTTPException(status_code=403, detail="Forbidden: self-assignment only")
-        if current_owner and current_owner != actor_uid:
+        if current_owner and current_owner != actor_uid and (order.get("status") != "INACTIVE"):
             raise HTTPException(status_code=403, detail="Forbidden: order already assigned to another employee")
     try:
         order_ref.update({"employee": target_uid})

@@ -211,8 +211,6 @@ def get_average_per_order_controller(year: str, month: str):
 def assign_order_to_table_controller(order_id: str, table_id: int, actor_uid: str, actor_roles: list[str]):
     _require_checkin(actor_uid)
     resp = assign_order_to_table_service_secure(order_id, table_id, actor_uid, actor_roles)
-    resp2 = associate_order_with_table_controller(str(table_id), order_id)
-    resp["table"] = resp2
     return resp
 
 def assign_employee_to_order_controller(order_id: str, target_uid: str, actor_uid: str, actor_roles: list[str]):
