@@ -274,7 +274,7 @@ def get_average_per_order_service(year: str, month: str) -> Dict[str, float]:
 
 def assign_order_to_table_service_secure(order_id: str, table_id: int, actor_uid: str, actor_roles: list[str]):
     try:
-        # Validaciones rápidas fuera de la transacción
+        # 1) Validaciones simples
         order = get_order_by_id(order_id)
         if not order:
             raise HTTPException(status_code=404, detail="Order not found")
@@ -290,39 +290,42 @@ def assign_order_to_table_service_secure(order_id: str, table_id: int, actor_uid
         order_ref = db.collection('orders').document(order_id)
         table_ref = db.collection('tables').document(str(table_id))
 
-        # Transacción: usar .get(transaction=tx) (NO tx.get(...))
-        tx = db.transaction()
+        # 2) Cortocircuito: si ya está todo bien, devolvé OK
+        #    (por si el front reintenta y el primer update llegó a aplicar)
+        current_table_num = int(order.get("tableNumber") or 0)
+        current_order_status = (order.get("status") or "").strip().upper()
+        current_table_status = (table.get("status") or "").strip().upper()
+        current_table_order_id = int(table.get("order_id") or 0)
+        if (current_order_status == "IN PROGRESS"
+            and current_table_num == int(table_id)
+            and current_table_status == "BUSY"
+            and current_table_order_id == int(order_id)):
+            return {"message": "Order assigned to table successfully"}
 
-        # Releer dentro de la transacción y validar nuevamente
-        ord_snap = order_ref.get(transaction=tx)
-        tbl_snap = table_ref.get(transaction=tx)
-
-        if not ord_snap.exists:
-            raise HTTPException(status_code=404, detail="Order not found")
-        if not tbl_snap.exists:
-            raise HTTPException(status_code=404, detail="Table not found")
-
-        ord_data = ord_snap.to_dict() or {}
-        tbl_data = tbl_snap.to_dict() or {}
-
-        if ord_data.get("status") != "INACTIVE":
-            raise HTTPException(status_code=400, detail="Order status is not INACTIVE")
-        if tbl_data.get("status") != "FREE":
-            raise HTTPException(status_code=400, detail="Table status is not FREE")
-
-        # Updates atómicos
-        tx.update(order_ref, {
+        # 3) Actualizar orden primero
+        order_ref.update({
             "status": "IN PROGRESS",
             "tableNumber": int(table_id)
         })
-        tx.update(table_ref, {
-            "status": "BUSY",
-            "order_id": int(order_id)
-        })
 
-        tx.commit()
+        try:
+            # 4) Actualizar mesa después
+            table_ref.update({
+                "order_id": int(order_id),
+                "status": "BUSY"
+            })
+        except Exception as e:
+            # 5) Si falló la mesa, hacemos rollback simple de la orden
+            try:
+                order_ref.update({
+                    "status": "INACTIVE",
+                    "tableNumber": 0
+                })
+            finally:
+                raise HTTPException(status_code=500, detail=f"Failed updating table: {e}")
 
         return {"message": "Order assigned to table successfully"}
+
     except HTTPException:
         raise
     except Exception as e:
