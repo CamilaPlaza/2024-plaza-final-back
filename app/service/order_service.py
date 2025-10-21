@@ -274,26 +274,63 @@ def get_average_per_order_service(year: str, month: str) -> Dict[str, float]:
 
 def assign_order_to_table_service_secure(order_id: str, table_id: int, actor_uid: str, actor_roles: list[str]):
     try:
+        # 1) Validaciones simples
         order = get_order_by_id(order_id)
         if not order:
             raise HTTPException(status_code=404, detail="Order not found")
         if order.get("status") != "INACTIVE":
             raise HTTPException(status_code=400, detail="Order status is not INACTIVE")
-        if not get_table_by_id(table_id):
-            raise HTTPException(status_code=404, detail="Table not found")
+
         table = get_table_by_id(str(table_id))
+        if not table:
+            raise HTTPException(status_code=404, detail="Table not found")
         if table.get("status") != "FREE":
             raise HTTPException(status_code=400, detail="Table status is not FREE")
+
         order_ref = db.collection('orders').document(order_id)
+        table_ref = db.collection('tables').document(str(table_id))
+
+        # 2) Cortocircuito: si ya está todo bien, devolvé OK
+        #    (por si el front reintenta y el primer update llegó a aplicar)
+        current_table_num = int(order.get("tableNumber") or 0)
+        current_order_status = (order.get("status") or "").strip().upper()
+        current_table_status = (table.get("status") or "").strip().upper()
+        current_table_order_id = int(table.get("order_id") or 0)
+        if (current_order_status == "IN PROGRESS"
+            and current_table_num == int(table_id)
+            and current_table_status == "BUSY"
+            and current_table_order_id == int(order_id)):
+            return {"message": "Order assigned to table successfully"}
+
+        # 3) Actualizar orden primero
         order_ref.update({
             "status": "IN PROGRESS",
-            "tableNumber": table_id
+            "tableNumber": int(table_id)
         })
+
+        try:
+            # 4) Actualizar mesa después
+            table_ref.update({
+                "order_id": int(order_id),
+                "status": "BUSY"
+            })
+        except Exception as e:
+            # 5) Si falló la mesa, hacemos rollback simple de la orden
+            try:
+                order_ref.update({
+                    "status": "INACTIVE",
+                    "tableNumber": 0
+                })
+            finally:
+                raise HTTPException(status_code=500, detail=f"Failed updating table: {e}")
+
         return {"message": "Order assigned to table successfully"}
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 def assign_employee_to_order_secure(order_id: str, target_uid: str, actor_uid: str, actor_roles: list[str]):
     order_ref = db.collection("orders").document(order_id)
@@ -305,7 +342,7 @@ def assign_employee_to_order_secure(order_id: str, target_uid: str, actor_uid: s
     if not _is_admin(actor_roles):
         if target_uid != actor_uid:
             raise HTTPException(status_code=403, detail="Forbidden: self-assignment only")
-        if current_owner and current_owner != actor_uid:
+        if current_owner and current_owner != actor_uid and (order.get("status") != "INACTIVE"):
             raise HTTPException(status_code=403, detail="Forbidden: order already assigned to another employee")
     try:
         order_ref.update({"employee": target_uid})

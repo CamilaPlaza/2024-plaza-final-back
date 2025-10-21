@@ -48,10 +48,6 @@ def apply_tip_controller(order_id: str, mode: str, value: float, actor_uid: str,
     target_emp = get_order_employee(order_id)
     if not target_emp:
         raise HTTPException(status_code=404, detail="ORDER_NOT_FOUND")
-    is_admin = "admin" in (actor_roles or [])
-    if not is_admin and target_emp != actor_uid:
-        raise HTTPException(status_code=403, detail="FORBIDDEN_TIP_ON_OTHERS_ORDER")
-
     return apply_tip_for_order_secure(order_id, mode, value, actor_uid, actor_roles)
 
 def get_current_tips_total_controller(user_data: dict):

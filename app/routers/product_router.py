@@ -15,11 +15,11 @@ async def register_product(product: Product, user_data=Depends(verify_token)):
     return register_new_product(product)
 
 @router.get("/getAll")
-async def products(user_data=Depends(verify_token)):
+async def products():
     return get_products()
 
 @router.get("/{product_id}")
-async def get_product(product_id: str, user_data=Depends(verify_token)):
+async def get_product(product_id: str):
     return get_product_by_id(product_id)
 
 @router.put("/updatePriceByID/{product_id}/{new_price}")

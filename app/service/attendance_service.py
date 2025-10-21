@@ -193,13 +193,10 @@ def apply_tip_for_order_secure(order_id: str, mode: str, value: float, actor_uid
     if order.get("status") != "FINALIZED":
         raise HTTPException(status_code=409, detail="ORDER_NOT_FINALIZED")
 
-    # ownership: el pedido debe pertenecer al actor (o ser admin)
+    # Acredita SIEMPRE al dueño de la orden
     employee_id = (order.get("employee") or "").strip()
     if not employee_id:
         raise HTTPException(status_code=403, detail="ORDER_WITHOUT_EMPLOYEE")
-    is_admin = "admin" in (actor_roles or [])
-    if not is_admin and employee_id != actor_uid:
-        raise HTTPException(status_code=403, detail="FORBIDDEN_TIP_ON_OTHERS_ORDER")
 
     try:
         base_total = float(order.get("total"))

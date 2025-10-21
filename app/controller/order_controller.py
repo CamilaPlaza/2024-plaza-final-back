@@ -24,8 +24,23 @@ def _validate_date(date_str: str):
         raise HTTPException(status_code=400, detail="date must be in 'YYYY-MM-DD' format")
 
 def _validate_time(time_str: str):
-    if not re.fullmatch(r"\d{2}:\d{2}", time_str or ""):
+    """
+    Acepta HH:mm o HH:mm:ss (24h). Rechaza otros formatos.
+    """
+    if not re.fullmatch(r"\d{2}:\d{2}(:\d{2})?", time_str or ""):
         raise HTTPException(status_code=400, detail="time must be in 'HH:mm' format")
+
+def _normalize_time_to_HH_mm(time_str: str) -> str:
+    """
+    Normaliza 'HH:mm' o 'HH:mm:ss' a 'HH:mm'.
+    """
+    if not time_str:
+        raise HTTPException(status_code=400, detail="time must be in 'HH:mm' format")
+    if re.fullmatch(r"\d{2}:\d{2}:\d{2}", time_str):
+        return time_str[:5]
+    if re.fullmatch(r"\d{2}:\d{2}", time_str):
+        return time_str
+    raise HTTPException(status_code=400, detail="time must be in 'HH:mm' format")
 
 def _round2(x: float) -> float:
     return round(x + 1e-9, 2)
@@ -42,15 +57,20 @@ def register_new_order_controller(order: Order, actor_uid: str, actor_roles: lis
     if not is_admin and incoming_emp and incoming_emp != actor_uid:
         raise HTTPException(status_code=403, detail="Non-admin can only create orders for themselves")
     target_uid = incoming_emp or actor_uid if is_admin or not incoming_emp else actor_uid
+
     if order.status not in ("INACTIVE", "IN PROGRESS"):
         raise HTTPException(status_code=400, detail="status must be 'INACTIVE' or 'IN PROGRESS' on creation")
     if order.status == "IN PROGRESS":
         if order.tableNumber <= 0:
             raise HTTPException(status_code=400, detail="tableNumber must be > 0 when status is IN PROGRESS")
+
     _validate_date(order.date)
     _validate_time(order.time)
+    norm_time = _normalize_time_to_HH_mm(order.time)
+
     if not order.orderItems:
         raise HTTPException(status_code=400, detail="At least one order item is required")
+
     computed_total = 0.0
     for raw_item in order.orderItems:
         prod_res = product_by_id(raw_item.product_id)
@@ -64,17 +84,68 @@ def register_new_order_controller(order: Order, actor_uid: str, actor_roles: lis
             raise HTTPException(status_code=400, detail=f"Product price for product ID {raw_item.product_id} does not match")
         item_price = _parse_float(raw_item.product_price, "product_price")
         computed_total += item_price * raw_item.amount
+
     declared_total = _parse_float(order.total, "total")
     if _round2(declared_total) != _round2(computed_total):
         raise HTTPException(status_code=400, detail="total does not match orderItems sum")
+
     if target_uid:
         employee_doc = fetch_user_by_id(target_uid)
         if isinstance(employee_doc, dict) and "error" in employee_doc:
             if employee_doc["error"] == "User not found":
                 raise HTTPException(status_code=404, detail="Employee not found")
             raise HTTPException(status_code=500, detail=employee_doc["error"])
+
     data = order.dict()
     data["employee"] = target_uid
+    data["time"] = norm_time  # ← guardamos HH:mm normalizado
+
+    resp = create_order(data)
+    if isinstance(resp, dict) and "error" in resp:
+        raise HTTPException(status_code=500, detail=resp["error"])
+    return resp
+
+def register_new_order_public_controller(order: Order):
+    if order.status != "INACTIVE":
+        raise HTTPException(status_code=400, detail="Public order must have status INACTIVE")
+
+    if (order.tableNumber or 0) != 0:
+        raise HTTPException(status_code=400, detail="tableNumber must be 0 for public orders")
+    if (order.employee or "").strip():
+        raise HTTPException(status_code=400, detail="employee must be empty for public orders")
+
+    _validate_date(order.date)
+    _validate_time(order.time)
+    norm_time = _normalize_time_to_HH_mm(order.time)
+
+    if not order.orderItems:
+        raise HTTPException(status_code=400, detail="At least one order item is required")
+
+    computed_total = 0.0
+    for raw_item in order.orderItems:
+        prod_res = product_by_id(raw_item.product_id)
+        if not isinstance(prod_res, dict) or "product" not in prod_res:
+            raise HTTPException(status_code=404, detail=f"Product with ID {raw_item.product_id} not found")
+        prod = prod_res["product"]
+        if raw_item.product_name != prod.get("name"):
+            raise HTTPException(status_code=400, detail=f"Product name for product ID {raw_item.product_id} does not match")
+        db_price_str = str(prod.get("price"))
+        if raw_item.product_price != db_price_str:
+            raise HTTPException(status_code=400, detail=f"Product price for product ID {raw_item.product_id} does not match")
+
+        item_price = _parse_float(raw_item.product_price, "product_price")
+        computed_total += item_price * raw_item.amount
+
+    declared_total = _parse_float(order.total, "total")
+    if _round2(declared_total) != _round2(computed_total):
+        raise HTTPException(status_code=400, detail="total does not match orderItems sum")
+
+    data = order.dict()
+    data["status"] = "INACTIVE"
+    data["employee"] = ""
+    data["tableNumber"] = 0
+    data["time"] = norm_time  # ← guardamos HH:mm normalizado
+
     resp = create_order(data)
     if isinstance(resp, dict) and "error" in resp:
         raise HTTPException(status_code=500, detail=resp["error"])
@@ -140,8 +211,6 @@ def get_average_per_order_controller(year: str, month: str):
 def assign_order_to_table_controller(order_id: str, table_id: int, actor_uid: str, actor_roles: list[str]):
     _require_checkin(actor_uid)
     resp = assign_order_to_table_service_secure(order_id, table_id, actor_uid, actor_roles)
-    resp2 = associate_order_with_table_controller(str(table_id), order_id)
-    resp["table"] = resp2
     return resp
 
 def assign_employee_to_order_controller(order_id: str, target_uid: str, actor_uid: str, actor_roles: list[str]):
@@ -149,3 +218,27 @@ def assign_employee_to_order_controller(order_id: str, target_uid: str, actor_ui
     if not target_uid or not isinstance(target_uid, str):
         raise HTTPException(status_code=400, detail="Employee UID is required")
     return assign_employee_to_order_secure(order_id, target_uid.strip(), actor_uid, actor_roles)
+
+from fastapi import HTTPException
+from app.db.firebase import db
+
+def get_employee_name_by_uid_controller(uid: str) -> str:
+    clean_uid = (uid or "").strip()
+    if not clean_uid:
+        raise HTTPException(status_code=400, detail="UID is required")
+
+    try:
+        snap = db.collection("users").document(clean_uid).get()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Firestore error: {type(e).__name__}: {e}")
+
+    if not snap.exists:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    data = snap.to_dict() or {}
+
+    name = data.get("name")
+
+    if isinstance(name, str):
+        return name
+    return ""
