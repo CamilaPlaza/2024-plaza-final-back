@@ -218,3 +218,24 @@ def assign_employee_to_order_controller(order_id: str, target_uid: str, actor_ui
     if not target_uid or not isinstance(target_uid, str):
         raise HTTPException(status_code=400, detail="Employee UID is required")
     return assign_employee_to_order_secure(order_id, target_uid.strip(), actor_uid, actor_roles)
+
+def get_employee_name_by_uid_controller(uid: str) -> str:
+    clean_uid = (uid or "").strip()
+    if not clean_uid:
+        raise HTTPException(status_code=400, detail="UID is required")
+
+    res = fetch_user_by_id(clean_uid)
+
+    if isinstance(res, dict) and "error" in res:
+        if res["error"] == "User not found":
+            raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=500, detail=str(res["error"]))
+
+    if not isinstance(res, dict):
+        raise HTTPException(status_code=500, detail="Unexpected user service response")
+
+    name = (res.get("name")).strip()
+    if not name:
+        name = (res.get("email") or clean_uid)
+
+    return name

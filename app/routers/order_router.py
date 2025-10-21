@@ -1,11 +1,13 @@
 # order_router.py
 from fastapi import APIRouter, Depends, Query, HTTPException, Header, Request
 from typing import Any, Dict, List, Optional
+
+from fastapi.responses import PlainTextResponse
 from app.models.order import Order
 from app.dependencies import verify_token
 from app.controller.order_controller import (
     assign_employee_to_order_controller, assign_order_to_table_controller,
-    delete_order_items_controller, register_new_order_controller, finalize_order_controller,
+    delete_order_items_controller, get_employee_name_by_uid_controller, register_new_order_controller, finalize_order_controller,
     get_orders_controller, get_order_controller, add_order_items_controller,
     register_new_order_public_controller
 )
@@ -103,3 +105,9 @@ async def assign_employee_to_order(orderId: str, uid: str, user_data=Depends(ver
 @router.get("/products")
 async def check_product_in_in_progress_orders(user_data=Depends(verify_token)):
     return check_product_in_in_progress_orders_controller()
+
+@router.get("/employee/{uid}", response_class=PlainTextResponse)
+async def get_employee_name_by_uid(uid: str, user_data=Depends(verify_token)):
+    if not _uid_from(user_data):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return get_employee_name_by_uid_controller(uid)
